@@ -1,0 +1,16 @@
+src/**
+test/**
+scripts/**
+node_modules/**
+.vscode/**
+.vscode-test/**
+.gitignore
+package-lock.json
+tsconfig.json
+vitest.config.ts
+**/*.map
+.reference/**
+builds/**
+dist/integration*
+*.nii
+*.nii.gz

@@ -1,0 +1,49 @@
+# npm 依赖
+node_modules/
+
+# 构建产物（由 npm run build / package 生成）
+/dist/
+/builds/
+/media/viewer.js
+/media/viewer.js.map
+*.vsix
+*.tsbuildinfo
+
+# VS Code 集成测试、覆盖率与缓存
+.vscode-test/
+coverage/
+.nyc_output/
+.cache/
+__pycache__/
+*.pyc
+
+# 本地影像与分割数据，不上传到源码仓库
+*.nii
+*.nii.gz
+*.dcm
+*.dicom
+
+# 原项目参考归档（含其嵌套 Git 仓库）
+/.reference/
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+*.swp
+*.swo
+*~
+
+# 本地环境配置；示例配置可以提交
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 操作系统与个人 IDE 文件
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/
+
+# 保留 package-lock.json、.vscode/ 调试配置、测试 fixture 和品牌资源

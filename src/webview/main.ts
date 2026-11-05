@@ -1,0 +1,513 @@
+import type {
+  Axis,
+  HostMessage,
+  SlicePixels,
+  SliceRequest,
+  VolumeInfo,
+  SourceKind,
+} from "../protocol";
+import {
+  SLICE_AXES,
+  describePlanes,
+  directionLabel,
+  type PlaneDescription,
+} from "./orientation";
+import { SurfaceView } from "./surface";
+import { CT_WINDOW_PRESETS, populateWindowPresets } from "./windowPresets";
+
+declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
+const api = acquireVsCodeApi();
+const surface = new SurfaceView(
+  document.getElementById("renderViewport")!,
+  (message) => api.postMessage(message),
+);
+let hasOverlay = false;
+let sourceKind: SourceKind = "image";
+const labelColors = [
+  [80, 189, 233],
+  [245, 170, 84],
+  [169, 140, 245],
+  [105, 214, 163],
+  [240, 127, 164],
+  [224, 212, 101],
+  [120, 164, 245],
+  [219, 142, 96],
+];
+const $ = <T extends HTMLElement>(id: string) =>
+  document.getElementById(id) as T;
+const status = $("status");
+function report(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  status.textContent = text;
+  status.classList.add("error");
+  $("startup").textContent = `无法显示影像：${text}`;
+  api.postMessage({ type: "clientError", message: text });
+}
+window.addEventListener("error", (e) => report(e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => report(e.reason));
+
+interface Plane {
+  axis: Axis;
+  canvas: HTMLCanvasElement;
+  viewport: HTMLElement;
+  crosshair: HTMLElement;
+  slider: HTMLInputElement;
+  count: HTMLElement;
+  context: CanvasRenderingContext2D;
+  wanted?: SliceRequest;
+  inFlight: boolean;
+  activeId?: number;
+  current?: { request: SliceRequest; base: SlicePixels; overlay?: SlicePixels };
+  base: Float32Array;
+  overlay: Float32Array;
+  acknowledged?: number;
+}
+const planes: Plane[] = [];
+const uv = SLICE_AXES;
+let volume: VolumeInfo | undefined;
+let indices = [0, 0, 0];
+let serial = 0;
+let windowInitialized = false;
+let overlayRange: [number, number] | undefined;
+const level = $<HTMLInputElement>("level"),
+  windowWidth = $<HTMLInputElement>("window");
+const windowPreset = $<HTMLSelectElement>("windowPreset");
+const viewLayout = $<HTMLSelectElement>("viewLayout");
+const opacity = $<HTMLInputElement>("opacity"),
+  frame = $<HTMLInputElement>("frame");
+
+function decode(plane: SlicePixels): Float32Array {
+  const bytes = Uint8Array.from(atob(plane.pixels), (c) => c.charCodeAt(0));
+  if (bytes.length !== plane.width * plane.height * 4)
+    throw new Error("切片数据长度错误。");
+  const view = new DataView(bytes.buffer);
+  return Float32Array.from({ length: plane.width * plane.height }, (_, i) =>
+    view.getFloat32(i * 4, true),
+  );
+}
+function setSourceKind(kind: SourceKind) {
+  const changed = sourceKind !== kind;
+  sourceKind = kind;
+  for (const id of ["windowPresetLabel", "levelLabel", "windowLabel"])
+    $(id).hidden = kind === "mask";
+  if (changed) opacity.value = kind === "mask" ? "1" : "0.5";
+  drawAll();
+}
+function fit(plane: Plane) {
+  if (!volume) return;
+  const [u, v] = uv[plane.axis];
+  const ratio =
+    (volume.dimensions[u] * volume.spacing[u]) /
+    (volume.dimensions[v] * volume.spacing[v]);
+  const w = Math.max(1, plane.viewport.clientWidth - 48),
+    h = Math.max(1, plane.viewport.clientHeight - 48);
+  const width = Math.min(w, h * ratio);
+  const height = width / ratio;
+  plane.canvas.style.width = `${width}px`;
+  plane.canvas.style.height = `${height}px`;
+  // Locate the voxel center within the fitted image, then extend the guides
+  // across the viewport in CSS pixels, independently of the image resolution.
+  const x =
+    (plane.viewport.clientWidth - width) / 2 +
+    ((indices[u] + 0.5) / volume.dimensions[u]) * width;
+  const y =
+    (plane.viewport.clientHeight - height) / 2 +
+    (1 - (indices[v] + 0.5) / volume.dimensions[v]) * height;
+  plane.crosshair.style.setProperty("--crosshair-x", `${Math.round(x)}px`);
+  plane.crosshair.style.setProperty("--crosshair-y", `${Math.round(y)}px`);
+  plane.crosshair.hidden = !plane.current;
+}
+function draw(plane: Plane) {
+  if (!plane.current || !volume) return;
+  const { base } = plane.current;
+  plane.canvas.width = base.width;
+  plane.canvas.height = base.height;
+  const image = plane.context.createImageData(base.width, base.height);
+  const width = Math.max(1e-5, Number(windowWidth.value) || 1);
+  const low = (Number(level.value) || 0) - width / 2;
+  const alpha = Number(opacity.value);
+  const [omin, omax] = overlayRange || [0, 1];
+  let visiblePixels = 0;
+  for (let y = 0; y < base.height; y++)
+    for (let x = 0; x < base.width; x++) {
+      const source = y * base.width + x,
+        p = ((base.height - y - 1) * base.width + x) * 4;
+      const value = plane.base[source],
+        o = plane.overlay[source];
+      const gray =
+        sourceKind !== "mask" && Number.isFinite(value)
+          ? Math.max(0, Math.min(255, ((value - low) * 255) / width))
+          : 0;
+      const a = Number.isFinite(o) && o !== 0 ? alpha : 0;
+      const t = Number.isFinite(o)
+        ? Math.max(0, Math.min(1, (o - omin) / (omax - omin || 1)))
+        : 0;
+      const color =
+        sourceKind === "mask" && a
+          ? labelColors[(Math.max(1, Math.round(o)) - 1) % labelColors.length]
+          : undefined;
+      image.data[p] = gray * (1 - a) + (color ? color[0] : 255) * a;
+      image.data[p + 1] = gray * (1 - a) + (color ? color[1] : 255 * t) * a;
+      image.data[p + 2] = gray * (1 - a) + (color ? color[2] : 0) * a;
+      image.data[p + 3] = 255;
+      if (image.data[p] || image.data[p + 1] || image.data[p + 2])
+        visiblePixels++;
+    }
+  plane.context.putImageData(image, 0, 0);
+  // Acknowledged only after a real Canvas2D write. Tests also verify that the
+  // renderer readback contains nonblack pixels for the supplied MRI fixture.
+  if (plane.acknowledged !== plane.current.request.id) {
+    const readback = plane.context.getImageData(
+      0,
+      0,
+      base.width,
+      base.height,
+    ).data;
+    let nonblack = 0;
+    for (let p = 0; p < readback.length; p += 4)
+      if (readback[p] || readback[p + 1] || readback[p + 2]) nonblack++;
+    if (visiblePixels !== nonblack) throw new Error("Canvas 写入校验失败。");
+    api.postMessage({
+      type: "painted",
+      id: plane.current.request.id,
+      axis: plane.axis,
+      width: base.width,
+      height: base.height,
+      visiblePixels: nonblack,
+    });
+    plane.acknowledged = plane.current.request.id;
+  }
+  fit(plane);
+}
+function drawAll() {
+  planes.forEach(draw);
+}
+function applyLayout() {
+  const mode = viewLayout.value;
+  const panels = $("panels");
+  panels.dataset.layout =
+    mode === "quad" || mode === "slices" ? mode : "single";
+  panels.setAttribute(
+    "aria-label",
+    `${viewLayout.selectedOptions[0].textContent}影像视图`,
+  );
+  for (const section of panels.querySelectorAll<HTMLElement>(".plane")) {
+    section.hidden =
+      mode === "slices"
+        ? section.dataset.view === "render"
+        : mode !== "quad" && section.dataset.view !== mode;
+  }
+  // Keep existing canvases, slices and the 3D camera; only fit the visible panes.
+  requestAnimationFrame(() => planes.forEach(fit));
+}
+function send(plane: Plane) {
+  if (!plane.inFlight && plane.wanted) {
+    plane.inFlight = true;
+    plane.activeId = plane.wanted.id;
+    api.postMessage({ type: "slice", request: plane.wanted });
+  }
+}
+function request(plane: Plane) {
+  if (!volume) return;
+  plane.slider.value = String(indices[plane.axis]);
+  plane.count.textContent = `${indices[plane.axis] + 1} / ${volume.dimensions[plane.axis]}`;
+  plane.wanted = {
+    id: ++serial,
+    axis: plane.axis,
+    index: indices[plane.axis],
+    frame: Number(frame.value),
+  };
+  status.textContent = "正在读取切片…";
+  status.classList.remove("error");
+  send(plane);
+}
+function requestAll() {
+  planes.forEach(request);
+}
+function autoWindow() {
+  windowPreset.value = "auto";
+  windowInitialized = false;
+  const slices = planes
+    .map((p) => p.current?.base)
+    .filter((p): p is SlicePixels => !!p);
+  if (!slices.length) return;
+  const min = Math.min(...slices.map((p) => p.min)),
+    max = Math.max(...slices.map((p) => p.max));
+  level.value = String((min + max) / 2);
+  windowWidth.value = String(Math.max(max - min, 1e-5));
+  windowInitialized = max > min;
+  drawAll();
+}
+function createPlane(description: PlaneDescription): Plane {
+  const { axis, view, title, english, note } = description;
+  const option = viewLayout.querySelector<HTMLOptionElement>(
+    `option[value="${view}"]`,
+  )!;
+  option.textContent = note ? `${title} · ${note}` : title;
+  const section = document.createElement("section");
+  section.className = "plane";
+  section.dataset.axis = String(axis);
+  section.dataset.view = view;
+  section.innerHTML = `<div class="plane-title"><div class="plane-heading"><h2>${title}</h2><span class="plane-english">${english}</span><span class="plane-note" ${note ? "" : "hidden"}>${note}</span></div><span class="count"></span></div><div class="viewport"><canvas aria-label="${title}影像"></canvas><div class="crosshair" hidden aria-hidden="true"><span class="crosshair-horizontal"></span><span class="crosshair-vertical"></span></div><span class="top"></span><span class="bottom"></span><span class="left"></span><span class="right"></span></div><input class="slice" type="range" min="0" value="0" aria-label="${title}切片">`;
+  $("panels").append(section);
+  const canvas = section.querySelector("canvas")!;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("无法创建 Canvas2D 显示上下文。");
+  const plane: Plane = {
+    axis,
+    canvas,
+    context,
+    viewport: section.querySelector(".viewport")!,
+    crosshair: section.querySelector(".crosshair")!,
+    slider: section.querySelector(".slice")!,
+    count: section.querySelector(".count")!,
+    inFlight: false,
+    base: new Float32Array(0),
+    overlay: new Float32Array(0),
+  };
+  plane.slider.max = String(volume!.dimensions[axis] - 1);
+  const [u, v] = uv[axis];
+  for (const [label, column, sign] of [
+    ["left", u, -1],
+    ["right", u, 1],
+    ["bottom", v, -1],
+    ["top", v, 1],
+  ] as const)
+    section.querySelector(`.${label}`)!.textContent = directionLabel(
+      volume!,
+      column,
+      sign,
+    );
+  plane.slider.oninput = () => {
+    indices[axis] = Number(plane.slider.value);
+    request(plane);
+    drawAll();
+  };
+  plane.viewport.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      indices[axis] = Math.max(
+        0,
+        Math.min(
+          volume!.dimensions[axis] - 1,
+          indices[axis] + (event.deltaY > 0 ? 1 : -1),
+        ),
+      );
+      request(plane);
+      drawAll();
+    },
+    { passive: false },
+  );
+  let drag: { x: number; y: number; level: number; width: number } | undefined;
+  canvas.oncontextmenu = (e) => e.preventDefault();
+  canvas.onpointerdown = (e) => {
+    if (e.button === 2) {
+      drag = {
+        x: e.clientX,
+        y: e.clientY,
+        level: Number(level.value),
+        width: Number(windowWidth.value),
+      };
+      canvas.setPointerCapture(e.pointerId);
+    } else if (e.button === 0) {
+      const rect = canvas.getBoundingClientRect();
+      indices[u] = Math.max(
+        0,
+        Math.min(
+          volume!.dimensions[u] - 1,
+          Math.floor(
+            ((e.clientX - rect.left) / rect.width) * volume!.dimensions[u],
+          ),
+        ),
+      );
+      indices[v] = Math.max(
+        0,
+        Math.min(
+          volume!.dimensions[v] - 1,
+          volume!.dimensions[v] -
+            1 -
+            Math.floor(
+              ((e.clientY - rect.top) / rect.height) * volume!.dimensions[v],
+            ),
+        ),
+      );
+      planes.filter((p) => p.axis !== axis).forEach(request);
+      drawAll();
+    }
+  };
+  canvas.onpointermove = (e) => {
+    if (!drag) return;
+    const scale = Math.max(1, drag.width) / 200;
+    level.value = String(drag.level + (e.clientY - drag.y) * scale);
+    windowWidth.value = String(
+      Math.max(1e-5, drag.width + (e.clientX - drag.x) * scale),
+    );
+    windowInitialized = true;
+    windowPreset.value = "custom";
+    drawAll();
+  };
+  canvas.onpointerup = canvas.onpointercancel = () => {
+    drag = undefined;
+  };
+  new ResizeObserver(() => fit(plane)).observe(plane.viewport);
+  return plane;
+}
+
+try {
+  $("loadImage").onclick = () => api.postMessage({ type: "openImage" });
+  viewLayout.onchange = applyLayout;
+  populateWindowPresets(windowPreset);
+  windowPreset.onchange = () => {
+    if (windowPreset.value === "auto") {
+      autoWindow();
+      return;
+    }
+    if (windowPreset.value === "custom") {
+      windowInitialized = true;
+      return;
+    }
+    const preset = CT_WINDOW_PRESETS.find((p) => p.id === windowPreset.value);
+    if (!preset) return;
+    level.value = String(preset.level);
+    windowWidth.value = String(preset.width);
+    windowInitialized = true;
+    drawAll();
+  };
+  level.oninput = windowWidth.oninput = () => {
+    windowInitialized = true;
+    windowPreset.value = "custom";
+    drawAll();
+  };
+  opacity.oninput = drawAll;
+  $<HTMLSelectElement>("activeOverlay").onchange = () =>
+    api.postMessage({
+      type: "selectOverlay",
+      layerId: $<HTMLSelectElement>("activeOverlay").value,
+    });
+  $("addOverlay").onclick = () => api.postMessage({ type: "overlay" });
+  $("removeOverlay").onclick = () => api.postMessage({ type: "removeOverlay" });
+  $("rebuildSurface").onclick = () =>
+    api.postMessage({
+      type: "surface",
+      frame: Number(frame.value),
+      force: true,
+    });
+  frame.oninput = () => {
+    $("frameValue").textContent =
+      `${Number(frame.value) + 1} / ${volume!.frames}`;
+    requestAll();
+    if (hasOverlay)
+      api.postMessage({ type: "surface", frame: Number(frame.value) });
+  };
+  window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
+    try {
+      const message = event.data;
+      if (!message || typeof message !== "object") return;
+      switch (message.type) {
+        case "volume":
+          if (volume) return;
+          volume = message.volume;
+          setSourceKind(message.sourceKind ?? "image");
+          clearInterval(heartbeat);
+          $("title").textContent = volume.name;
+          $("details").textContent =
+            `${volume.dimensions.join(" × ")} · ${volume.frames} 帧 · ${volume.hasOrientation ? "按影像空间方向显示 · 保持原始切面" : "缺少空间方向信息，无法确定解剖切面"}`;
+          $("displayControls").hidden = false;
+          $<HTMLButtonElement>("addOverlay").disabled = false;
+          opacity.disabled = false;
+          $("panels").hidden = false;
+          $("startup").hidden = true;
+          indices = volume.dimensions.map((n) => Math.floor(n / 2));
+          frame.max = String(volume.frames - 1);
+          $("frameLabel").hidden = volume.frames === 1;
+          $("frameValue").textContent = `1 / ${volume.frames}`;
+          for (const description of describePlanes(volume))
+            planes.push(createPlane(description));
+          applyLayout();
+          requestAll();
+          break;
+        case "slice": {
+          const plane = planes.find((p) => p.axis === message.request.axis);
+          if (!plane) return;
+          if (plane.activeId !== message.request.id) return;
+          plane.inFlight = false;
+          plane.activeId = undefined;
+          if (plane.wanted?.id === message.request.id) {
+            plane.current = message;
+            plane.base = decode(message.base);
+            plane.overlay = message.overlay
+              ? decode(message.overlay)
+              : new Float32Array(0);
+            if (message.overlay && !overlayRange)
+              overlayRange = [message.overlay.min, message.overlay.max];
+            plane.wanted = undefined;
+            if (!windowInitialized) autoWindow();
+            else draw(plane);
+          }
+          send(plane);
+          if (planes.every((p) => !p.wanted && p.current))
+            status.textContent = "就绪";
+          break;
+        }
+        case "overlay":
+          hasOverlay = !!message.volume;
+          surface.setLayers(message.layers);
+          const activeOverlay = $<HTMLSelectElement>("activeOverlay");
+          activeOverlay.replaceChildren();
+          for (const layer of message.layers) {
+            const option = document.createElement("option");
+            option.value = layer.id;
+            option.textContent = layer.volume.name;
+            activeOverlay.append(option);
+          }
+          activeOverlay.value = message.activeId ?? "";
+          $("overlaySelector").hidden = !message.layers.length;
+          if (hasOverlay)
+            api.postMessage({ type: "surface", frame: Number(frame.value) });
+          $("overlayName").textContent = message.volume?.name || "";
+          $<HTMLButtonElement>("removeOverlay").disabled = !message.volume;
+          overlayRange = undefined;
+          for (const plane of planes) {
+            plane.inFlight = false;
+            plane.activeId = undefined;
+            plane.overlay = new Float32Array(0);
+            plane.current = undefined;
+          }
+          requestAll();
+          break;
+        case "surface":
+          surface.update(message.layerId, message.revision, message.surface);
+          break;
+        case "status":
+          status.textContent = message.message;
+          break;
+        case "error":
+          status.textContent = message.message;
+          status.classList.add("error");
+          if (!volume) {
+            $("startup").textContent = message.message;
+            clearInterval(heartbeat);
+          }
+          if (message.id !== undefined) {
+            const plane = planes.find((p) => p.activeId === message.id);
+            if (plane) {
+              plane.inFlight = false;
+              plane.activeId = undefined;
+              if (plane.wanted?.id === message.id) plane.wanted = undefined;
+              send(plane);
+            }
+          }
+          break;
+      }
+    } catch (error) {
+      report(error);
+    }
+  });
+  const heartbeat = setInterval(() => {
+    if (!volume) api.postMessage({ type: "ready" });
+  }, 1000);
+  api.postMessage({ type: "ready" });
+} catch (error) {
+  report(error);
+}
