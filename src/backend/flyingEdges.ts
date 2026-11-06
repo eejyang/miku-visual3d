@@ -43,8 +43,8 @@ export function flyingEdges(
         if (!label) continue;
         let b = bounds.get(label);
         if (!b) {
-          if (bounds.size >= 128)
-            throw new Error("3D masks support at most 128 labels.");
+          if (bounds.size >= 255)
+            throw new Error("3D masks support at most 255 labels.");
           bounds.set(label, (b = { min: [x, y, z], max: [x, y, z] }));
         }
         for (const [axis, value] of [x, y, z].entries()) {

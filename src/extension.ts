@@ -173,8 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (panel.active) lastActiveViewer = key;
           const receive = panel.webview.onDidReceiveMessage((message) => {
             if (message?.type === "openImage") {
-              if (session.diagnostics.loaded) void session.addOverlay();
-              else void vscode.commands.executeCommand("mikuVisual.open");
+              void vscode.commands.executeCommand("mikuVisual.open");
             } else void session.receive(message);
           });
           const timer = setTimeout(() => {
@@ -207,6 +206,7 @@ export function activate(context: vscode.ExtensionContext) {
 <div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
 <div id="toolbar" role="toolbar" aria-label="影像显示工具">
 <button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>
+<button class="icon-button" id="addImage" title="附加影像 / 分割文件" aria-label="附加影像 / 分割文件" disabled>${icon("file-plus")}</button>
 <label class="icon-select" title="视窗布局">${icon("layout")}<select id="viewLayout" aria-label="视窗布局" disabled><option value="quad">四窗</option><option value="slices">三切面</option><optgroup label="单窗"><option value="axial">轴位</option><option value="sagittal">矢状位</option><option value="coronal">冠状位</option><option value="render">三维表面</option></optgroup></select></label>
 <button class="icon-button" id="toggleCrosshair" title="显示 / 隐藏十字线" aria-label="显示 / 隐藏十字线" aria-pressed="true" disabled>${icon("crosshair")}</button>
 <span class="toolbar-separator" aria-hidden="true"></span>

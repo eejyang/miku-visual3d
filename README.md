@@ -16,9 +16,11 @@
 
 ## 使用
 
-1. 在扩展面板选择 **Install from VSIX…**，安装 `builds/miku-visual3d-1.0.0.vsix`，然后重载窗口。
+1. 在扩展面板选择 **Install from VSIX…**，安装 `builds/miku-visual-3d-1.0.0.vsix`，然后重载窗口。
 2. 右键 `.nii` / `.nii.gz` → **Open With… → Miku Visual3D**，或运行 **MikuVisual: Open Image**。
-3. 使用工具栏文件夹图标继续加载文件；已有影像时，也可右键文件选择 **MikuVisual: Add Image**。
+3. 工具栏文件夹图标在独立窗口打开影像，旁边的加号文件图标向当前窗口附加影像或 Mask；也可右键文件选择 **MikuVisual: Add Image**。
+
+加载时自动识别：数值种类少于 256 的文件视为 Mask，达到 256 种视为影像，背景值也计入统计。
 
 | 操作 | 交互 |
 | --- | --- |
@@ -31,4 +33,4 @@
 
 作者：[eejyang](https://github.com/eejyang) · [GitHub](https://github.com/eejyang/miku-visual3d) · [问题反馈](https://github.com/eejyang/miku-visual3d/issues)
 
-许可：[BSD-2-Clause](LICENSE)；第三方许可见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
+原创代码许可：[BSD-2-Clause](LICENSE)；第三方组件及色表许可见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。

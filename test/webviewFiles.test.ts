@@ -207,14 +207,22 @@ it("transposes and reflects real slice pixels, Mask pixels, crosshairs and linke
   expect(sent.filter((m) => m.type === "clientError")).toEqual([]);
 });
 
-it("keeps one loader, a main-image header and independent Mask modules", () => {
+it("separates opening a new image from adding to the current viewer and retains independent Mask modules", () => {
   const { doc, sent, post, paint, contexts } = launch();
   expect(doc.getElementById("addOverlay")).toBeNull();
   expect(doc.getElementById("activeOverlay")).toBeNull();
   doc.getElementById("loadImage")!.click();
   expect(sent.at(-1)).toEqual({ type: "openImage" });
+  const addImage = doc.getElementById("addImage") as any;
+  expect(doc.getElementById("loadImage")!.nextElementSibling).toBe(addImage);
+  expect(addImage.disabled).toBe(true);
   post({ type: "volume", volume: reference, sourceKind: "image" });
   paint();
+  expect(addImage.disabled).toBe(false);
+  addImage.click();
+  expect(sent.at(-1)).toEqual({ type: "overlay" });
+  doc.getElementById("loadImage")!.click();
+  expect(sent.at(-1)).toEqual({ type: "openImage" });
   const layers = [
     {
       id: "mask-1",

@@ -255,8 +255,8 @@ it("rejects non-label intensities only in the 3D path", async () => {
   ).not.toBeNull();
 });
 
-it.each([128, 129])(
-  "classifies exactly %s distinct values using the 128-value boundary",
+it.each([128, 129, 255, 256])(
+  "classifies exactly %s distinct values using the 256-value boundary",
   async (distinct) => {
     const bytes = Buffer.alloc(352 + 256 * 2);
     bytes.writeInt32LE(348, 0);
@@ -275,7 +275,7 @@ it.each([128, 129])(
     for (let i = 0; i < 256; i++) bytes.writeInt16LE(i % distinct, 352 + i * 2);
     const source = await volume(bytes, true);
     expect(await source.classifySource()).toBe(
-      distinct > 128 ? "image" : "mask",
+      distinct >= 256 ? "image" : "mask",
     );
   },
 );
@@ -293,6 +293,26 @@ it("counts later frames and never infers masks from the first frame alone", asyn
   const source = await volume(bytes);
   expect(await source.classifySource()).toBe("image");
 });
+it.each([255, 256])(
+  "validates %s nonzero labels consistently with the surface limit",
+  async (distinct) => {
+    const bytes = Buffer.alloc(352 + distinct * 2);
+    fixture().copy(bytes, 0, 0, 352);
+    bytes.writeInt16LE(3, 40);
+    [distinct, 1, 1].forEach((n, i) => bytes.writeInt16LE(n, 42 + i * 2));
+    bytes.writeFloatLE(1, 112);
+    bytes.writeFloatLE(0, 116);
+    for (let i = 0; i < distinct; i++) bytes.writeInt16LE(i + 1, 352 + i * 2);
+    const source = await volume(bytes);
+    if (distinct === 255) {
+      expect(await source.classifySource()).toBe("mask");
+      expect(new Set(await source.labelFrame(0)).size).toBe(255);
+    } else {
+      expect(await source.classifySource()).toBe("image");
+      await expect(source.labelFrame(0)).rejects.toThrow("255-label limit");
+    }
+  },
+);
 it("supports cancellation while classifying a source", async () => {
   const source = await volume(fixture());
   const abort = new AbortController();

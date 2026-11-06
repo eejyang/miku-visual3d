@@ -84,3 +84,17 @@ it("handles empty masks and enforces the mesh budget before output allocation", 
     flyingEdges(new Uint32Array([1]), [1, 1, 1], identity, undefined, 7),
   ).toThrow("limit");
 });
+
+it("renders 255 distinct labels and rejects masks beyond the label limit", () => {
+  const labels = Uint32Array.from({ length: 255 }, (_, i) => i + 1);
+  expect(
+    flyingEdges(labels, [255, 1, 1], identity).map((mesh) => mesh.label),
+  ).toEqual([...labels]);
+  expect(() =>
+    flyingEdges(
+      Uint32Array.from({ length: 256 }, (_, i) => i + 1),
+      [256, 1, 1],
+      identity,
+    ),
+  ).toThrow("255 labels");
+});

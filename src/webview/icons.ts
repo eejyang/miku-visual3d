@@ -1,6 +1,8 @@
 // Small, consistent inline icons; no remote fonts or runtime dependency.
 const paths = {
   "folder-open": '<path d="M3 7V4h6l2 2h10v4M3 7v13h17l3-10H7L3 20"/>',
+  "file-plus":
+    '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6M12 12v6m-3-3h6"/>',
   layout:
     '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h18"/>',
   crosshair:
@@ -9,7 +11,8 @@ const paths = {
     '<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-4 2 2 0 0 1 1-4h3a3 3 0 0 0 3-3c0-4-4-7-9-7Z"/><path d="M7 10h.01M10 6h.01M15 6h.01M18 9h.01"/>',
   opacity:
     '<path d="M12 3C10 6 5 11 5 15a7 7 0 0 0 14 0c0-4-5-9-7-12Z"/><path d="M12 3v19a7 7 0 0 0 7-7c0-4-5-9-7-12Z" fill="currentColor" fill-opacity="0.4" stroke="none"/>',
-  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/>',
+  contrast:
+    '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/>',
   "rotate-ccw": '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
   "refresh-cw":
     '<path d="M21 10a9 9 0 0 0-15-6L3 7m0-5v5h5M3 14a9 9 0 0 0 15 6l3-3m0 5v-5h-5"/>',

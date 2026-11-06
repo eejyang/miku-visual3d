@@ -424,6 +424,7 @@ function createPlane(description: PlaneDescription): Plane {
 
 try {
   $("loadImage").onclick = () => api.postMessage({ type: "openImage" });
+  $("addImage").onclick = () => api.postMessage({ type: "overlay" });
   viewLayout.onchange = applyLayout;
   mainImage.onchange = () =>
     api.postMessage({ type: "selectOverlay", layerId: mainImage.value });
@@ -486,6 +487,7 @@ try {
           updateHeader();
           clearInterval(heartbeat);
           for (const id of [
+            "addImage",
             "viewLayout",
             "toggleCrosshair",
             "colormap",

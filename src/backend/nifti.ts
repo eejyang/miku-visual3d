@@ -363,7 +363,7 @@ export class RemoteVolume {
           read(view, i * size, this.header.littleEndian) * this.header.slope +
             this.header.intercept,
         );
-        if (values.size > 128) return "image";
+        if (values.size >= 256) return "image";
       }
       start += length;
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -412,9 +412,9 @@ export class RemoteVolume {
         labels[start + i] = value;
         if (value) {
           values.add(value);
-          if (values.size > 128)
+          if (values.size > 255)
             throw new Error(
-              "3D mask exceeds the 128-label limit; 2D overlays remain available.",
+              "3D mask exceeds the 255-label limit; 2D overlays remain available.",
             );
         }
       }

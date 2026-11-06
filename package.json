@@ -1,5 +1,5 @@
 {
-  "name": "miku-visual3d",
+  "name": "miku-visual-3d",
   "displayName": "Miku Visual 3D",
   "icon": "media/brand.png",
   "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces.",
@@ -82,7 +82,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
-    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual3d-1.0.0.vsix"
+    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual-3d-1.0.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
