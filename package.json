@@ -1,7 +1,7 @@
 {
   "name": "miku-visual-3d",
   "displayName": "Miku Visual 3D",
-  "icon": "media/brand.png",
+  "icon": "media/icon.png",
   "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces.",
   "version": "1.0.0",
   "type": "module",

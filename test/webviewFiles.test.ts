@@ -518,14 +518,9 @@ it("jumps all linked slices to the selected Mask label without changing its visi
   expect(
     doc.querySelector(".surface-visible")!.getAttribute("aria-pressed"),
   ).toBe("false");
-  const crosshair = viewport.querySelector<any>(".crosshair")!;
-  expect(crosshair.hidden).toBe(false);
-  expect(crosshair.style.getPropertyValue("--crosshair-x")).toBe("200px");
-  expect(crosshair.style.getPropertyValue("--crosshair-y")).toBe("150px");
+  expect(viewport.querySelector(".crosshair")).toBeNull();
   doc.getElementById("toggleCrosshair")!.click();
-  expect(crosshair.hidden).toBe(true);
-  doc.getElementById("toggleCrosshair")!.click();
-  expect(crosshair.hidden).toBe(false);
+  expect(viewport.querySelector(".crosshair")).toBeNull();
   expect(
     sent.filter(
       (m) => m.type === "clientError" || m.type === "surfaceClientError",

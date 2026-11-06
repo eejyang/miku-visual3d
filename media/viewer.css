@@ -72,17 +72,22 @@ header {
   letter-spacing: -0.035em;
 }
 .brand-mark {
-  border-radius: 7px;
+  display: block;
+  width: 24px;
+  height: auto;
+  max-width: none;
   flex: none;
 }
 .brand-logo {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   flex: none;
 }
 .brand small {
+  /* Close the gap left by the transparent bottom padding of the icon. */
+  margin-top: -3px;
   color: var(--muted);
   font-size: 9px;
   font-weight: 500;

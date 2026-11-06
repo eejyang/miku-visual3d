@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
         const panel = key ? viewerPanels.get(key) : undefined;
         if (!key || !session || !panel) {
           void vscode.window.showInformationMessage(
-            "Please open an image with Miku Visual3D first.",
+            "Please open an image with MikuVisual3D first.",
           );
           return;
         }
@@ -125,7 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.Uri.joinPath(media, "viewer.css"),
           );
           const brand = panel.webview.asWebviewUri(
-            vscode.Uri.joinPath(media, "brand.png"),
+            vscode.Uri.joinPath(media, "icon.png"),
           );
           const key = document.uri.toString();
           let session: ViewerSession;
@@ -202,8 +202,8 @@ export function activate(context: vscode.ExtensionContext) {
           // separately bundled files, never serialized functions in inline scripts.
           panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${style}"><title>Miku Visual3D</title></head><body>
-<div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
+<link rel="stylesheet" href="${style}"><title>Miku Visual</title></head><body>
+<div id="app"><header><span class="brand" aria-label="miku Visual"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual 3D</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
 <div id="toolbar" role="toolbar" aria-label="影像显示工具">
 <button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>
 <button class="icon-button" id="addImage" title="附加影像 / 分割文件" aria-label="附加影像 / 分割文件" disabled>${icon("file-plus")}</button>

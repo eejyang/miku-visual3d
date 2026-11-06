@@ -1,4 +1,4 @@
-# Miku Visual3D
+# Miku Visual 3D
 
 在 VS Code 中查看 NIfTI 医学影像与分割 Mask，支持三切面联动和三维表面显示。
 

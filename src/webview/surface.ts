@@ -17,12 +17,7 @@ import {
   WebGLRenderTarget,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type {
-  OverlayLayer,
-  SurfaceMesh,
-  SurfaceUpdate,
-  VolumeInfo,
-} from "../protocol";
+import type { OverlayLayer, SurfaceMesh, SurfaceUpdate } from "../protocol";
 import { labelColor } from "./labelColors";
 import { icon } from "./icons";
 
@@ -82,9 +77,6 @@ export class SurfaceView {
   private radius = 1;
   private center = new Vector3();
   private hasFramed = false;
-  private crosshair = document.createElement("div");
-  private crosshairPosition?: Vector3;
-  private crosshairEnabled = true;
   private message = document.getElementById("renderMessage")!;
   private list = document.getElementById("surfaceLayers")!;
   private reset = document.getElementById("resetSurface") as HTMLButtonElement;
@@ -103,12 +95,6 @@ export class SurfaceView {
     fill.position.set(-2, 1, -1);
     this.scene.add(key, fill);
     this.camera.up.set(0, 0, 1);
-    this.crosshair.className = "crosshair";
-    this.crosshair.hidden = true;
-    this.crosshair.setAttribute("aria-hidden", "true");
-    this.crosshair.innerHTML =
-      '<span class="crosshair-horizontal"></span><span class="crosshair-vertical"></span>';
-    this.viewport.append(this.crosshair);
     this.reset.onclick = () => this.home();
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(viewport);
@@ -141,58 +127,6 @@ export class SurfaceView {
       layer.row
         .querySelector<HTMLButtonElement>(".surface-active")!
         .setAttribute("aria-pressed", String(key === id));
-  }
-
-  setCrosshair(
-    volume: VolumeInfo,
-    indices: readonly number[],
-    visible: boolean,
-  ) {
-    const a = volume.affine;
-    // Integer voxel indices already refer to voxel centers in NIfTI. Use the
-    // reference affine, including scale, rotation, shear and translation.
-    this.crosshairPosition = new Vector3(
-      a[0] * indices[0] + a[1] * indices[1] + a[2] * indices[2] + a[3],
-      a[4] * indices[0] + a[5] * indices[1] + a[6] * indices[2] + a[7],
-      a[8] * indices[0] + a[9] * indices[1] + a[10] * indices[2] + a[11],
-    );
-    this.crosshairEnabled = visible;
-    this.updateCrosshair();
-  }
-
-  private updateCrosshair() {
-    this.crosshair.hidden = true;
-    if (
-      !this.renderer ||
-      !this.hasFramed ||
-      this.reset.disabled ||
-      !this.crosshairEnabled ||
-      !this.crosshairPosition
-    )
-      return;
-    const width = this.viewport.clientWidth,
-      height = this.viewport.clientHeight;
-    if (!width || !height) return;
-    this.camera.updateMatrixWorld();
-    const point = this.crosshairPosition.clone().project(this.camera);
-    // A cursor outside the camera frustum must not become an edge marker or
-    // appear mirrored when the current voxel is behind the camera.
-    if (
-      !point.toArray().every(Number.isFinite) ||
-      Math.abs(point.x) > 1 ||
-      Math.abs(point.y) > 1 ||
-      Math.abs(point.z) > 1
-    )
-      return;
-    this.crosshair.style.setProperty(
-      "--crosshair-x",
-      `${Math.round(((point.x + 1) * width) / 2)}px`,
-    );
-    this.crosshair.style.setProperty(
-      "--crosshair-y",
-      `${Math.round(((1 - point.y) * height) / 2)}px`,
-    );
-    this.crosshair.hidden = false;
   }
 
   displayStyle(
@@ -718,7 +652,6 @@ export class SurfaceView {
   }
   private render() {
     this.renderer?.render(this.scene, this.camera);
-    this.updateCrosshair();
   }
   private clearLayer(layer: LayerView) {
     for (const object of [...layer.group.children]) {
@@ -735,6 +668,5 @@ export class SurfaceView {
     this.controls?.dispose();
     for (const layer of this.layers.values()) this.clearLayer(layer);
     this.renderer?.dispose();
-    this.crosshair.remove();
   }
 }

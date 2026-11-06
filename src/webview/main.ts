@@ -265,10 +265,6 @@ function draw(plane: Plane) {
 }
 function drawAll() {
   planes.forEach(draw);
-  syncSurfaceCrosshair();
-}
-function syncSurfaceCrosshair() {
-  if (volume) surface.setCrosshair(volume, indices, showCrosshair);
 }
 function applyLayout() {
   const mode = viewLayout.value;
@@ -433,7 +429,6 @@ try {
     showCrosshair = !showCrosshair;
     $("toggleCrosshair").setAttribute("aria-pressed", String(showCrosshair));
     planes.forEach(fit);
-    syncSurfaceCrosshair();
   };
   $("resetDisplay").onclick = () => {
     autoWindow();
@@ -507,7 +502,6 @@ try {
             planes.push(createPlane(description));
           applyLayout();
           requestAll();
-          syncSurfaceCrosshair();
           break;
         case "slice": {
           const plane = planes.find((p) => p.axis === message.request.axis);
