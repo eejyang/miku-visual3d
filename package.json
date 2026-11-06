@@ -3,7 +3,7 @@
   "displayName": "Miku Volume",
   "icon": "media/brand.png",
   "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "publisher": "eejyang",
   "license": "BSD-2-Clause",
