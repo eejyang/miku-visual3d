@@ -548,6 +548,7 @@ footer {
   white-space: nowrap;
 }
 .surface-display-controls,
+.surface-color-controls,
 .surface-modes,
 .surface-summary-actions,
 .surface-label-controls {
@@ -563,6 +564,9 @@ footer {
 .surface-summary-actions {
   flex: none;
   gap: 2px;
+}
+.surface-color-controls {
+  flex: none;
 }
 .surface-summary-actions {
   margin-left: auto;
@@ -655,17 +659,9 @@ footer {
 .surface-label-dot {
   font-size: 10px;
 }
-.surface-label-pill[data-visible="false"] .surface-label-dot {
-  opacity: 0.3;
-}
-.surface-label-pill .surface-label-toggle {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 5px 3px 2px;
-}
-.surface-label-toggle svg {
-  width: 12px;
-  height: 12px;
+.surface-label-pill[data-visible="false"] .surface-label-select {
+  opacity: 0.4;
+  text-decoration: line-through;
 }
 .icon-button,
 .icon-select {

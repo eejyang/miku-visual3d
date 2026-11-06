@@ -30,7 +30,6 @@ export function flyingEdges(
   dimensions: number[],
   affine: number[],
   progress: (label: number) => void = () => {},
-  triangleLimit = 1_000_000,
 ): Mesh[] {
   const [dx, dy, dz] = dimensions;
   if (labels.length !== dx * dy * dz)
@@ -53,22 +52,15 @@ export function flyingEdges(
         }
       }
   const meshes: Mesh[] = [];
-  let totalTriangles = 0;
   for (const [label, boundsForLabel] of [...bounds].sort(
     (a, b) => a[0] - b[0],
   )) {
     progress(label);
-    const mesh = contour(label, boundsForLabel, triangleLimit - totalTriangles);
-    totalTriangles += mesh.indices.length / 3;
-    meshes.push(mesh);
+    meshes.push(contour(label, boundsForLabel));
   }
   return meshes;
 
-  function contour(
-    label: number,
-    boundsForLabel: Bounds,
-    budget: number,
-  ): Mesh {
+  function contour(label: number, boundsForLabel: Bounds): Mesh {
     // One zero voxel around every label closes surfaces touching image borders.
     const origin = boundsForLabel.min.map((n) => n - 1);
     const [nx, ny, nz] = boundsForLabel.max.map((n, a) => n - origin[a] + 2);
@@ -167,10 +159,6 @@ export function flyingEdges(
             row.count += tableLengths[cellCase(r, x)] / 3;
           triangles += row.count;
         }
-        if (triangles > budget || vertices > 2_000_000)
-          throw new Error(
-            "3D surface exceeds the triangle or vertex limit; 2D overlays remain available.",
-          );
       }
     // Pass 3: prefix sums and exact output allocations.
     let vertexOffset = 0,

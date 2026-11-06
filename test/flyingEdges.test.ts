@@ -78,12 +78,23 @@ it("closes image boundaries, shares edge vertices and preserves reflected/sheare
   expect([...uses.values()].every((n) => n === 2)).toBe(true);
   expect(volume).toBeCloseTo(4); // One-voxel octahedron volume 1/6 * |det affine|.
 });
-it("handles empty masks and enforces the mesh budget before output allocation", () => {
+it("handles empty masks", () => {
   expect(flyingEdges(new Uint32Array(8), [2, 2, 2], identity)).toEqual([]);
-  expect(() =>
-    flyingEdges(new Uint32Array([1]), [1, 1, 1], identity, undefined, 7),
-  ).toThrow("limit");
 });
+
+it("extracts surfaces beyond the former triangle and vertex limits", () => {
+  // Separated foreground voxels each produce six vertices and eight triangles.
+  const edge = 140;
+  const labels = new Uint32Array(edge ** 3);
+  for (let z = 0; z < edge; z += 2)
+    for (let y = 0; y < edge; y += 2)
+      for (let x = 0; x < edge; x += 2)
+        labels[x + edge * (y + edge * z)] = 1;
+  const [mesh] = flyingEdges(labels, [edge, edge, edge], identity);
+  const voxels = (edge / 2) ** 3;
+  expect(mesh.vertices.length / 3).toBe(voxels * 6); // 2,058,000 vertices.
+  expect(mesh.indices.length / 3).toBe(voxels * 8); // 2,744,000 triangles.
+}, 30_000);
 
 it("renders 255 distinct labels and rejects masks beyond the label limit", () => {
   const labels = Uint32Array.from({ length: 255 }, (_, i) => i + 1);

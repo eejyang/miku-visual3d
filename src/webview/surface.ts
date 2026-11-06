@@ -44,6 +44,7 @@ interface LayerView {
   opacity: number;
   wireframe: boolean;
   hiddenLabels: Set<number>;
+  labelClicks: Map<number, ReturnType<typeof setTimeout>>;
   selectedLabel?: number;
   revision: number;
   state: SurfaceUpdate["state"];
@@ -210,7 +211,7 @@ export class SurfaceView {
     row.open = true;
     row.className = "surface-layer";
     row.dataset.layerId = info.id;
-    row.innerHTML = `<summary><span class="surface-file-info"><button class="icon-button surface-active" title="在二维查看此 Mask" aria-label="在二维查看此 Mask" aria-pressed="false">${icon("layers")}</button><span class="surface-filename"></span><span class="surface-label-count"></span></span><span class="surface-display-controls"><label class="surface-opacity-control" title="Mask 不透明度">${icon("opacity")} <input class="surface-opacity" aria-label="Mask 不透明度" type="range" min="0" max="1" step="0.05"><output></output></label><button class="icon-button surface-visible" title="隐藏标签" aria-label="隐藏标签" aria-pressed="true">${icon("eye")}</button><span class="surface-modes" role="group" aria-label="表面模式"><button class="icon-button surface-solid" title="实体表面" aria-label="实体表面" aria-pressed="true">${icon("box")}</button><button class="icon-button surface-wireframe" title="线框表面" aria-label="线框表面" aria-pressed="false">${icon("grid-3x3")}</button></span></span><span class="surface-summary-actions"><span class="surface-separator" aria-hidden="true"></span><button class="icon-button surface-rebuild" title="重新生成三维表面" aria-label="重新生成三维表面">${icon("refresh-cw")}</button><button class="icon-button surface-remove" title="移除 Mask" aria-label="移除 Mask">${icon("trash-2")}</button></span></summary><div class="surface-label-controls"><span class="surface-palette" title="Mask colors" aria-hidden="true">${icon("palette")}</span><select class="surface-color-mode" aria-label="Mask colors"><option value="auto">Auto</option><option value="custom" hidden>Custom</option>${MASK_COLORS.map(({ name, color }) => `<option value="${color}">${name}</option>`).join("")}</select><input class="surface-color" type="color" aria-label="Mask 颜色" disabled hidden><span class="surface-separator" aria-hidden="true"></span><div class="surface-labels" aria-label="标签选择与显隐"></div><span class="surface-layer-status" role="status"></span></div>`;
+    row.innerHTML = `<summary><span class="surface-file-info"><button class="icon-button surface-active" title="在二维查看此 Mask" aria-label="在二维查看此 Mask" aria-pressed="false">${icon("layers")}</button><span class="surface-filename"></span><span class="surface-label-count"></span></span><span class="surface-display-controls"><span class="surface-color-controls"><span class="surface-palette" title="Mask colors" aria-hidden="true">${icon("palette")}</span><select class="surface-color-mode" aria-label="Mask colors"><option value="auto">Auto</option><option value="custom" hidden>Custom</option>${MASK_COLORS.map(({ name, color }) => `<option value="${color}">${name}</option>`).join("")}</select><input class="surface-color" type="color" aria-label="Mask 颜色" disabled hidden></span><label class="surface-opacity-control" title="Mask 不透明度">${icon("opacity")} <input class="surface-opacity" aria-label="Mask 不透明度" type="range" min="0" max="1" step="0.05"><output></output></label><button class="icon-button surface-visible" title="隐藏标签" aria-label="隐藏标签" aria-pressed="true">${icon("eye")}</button><span class="surface-modes" role="group" aria-label="表面模式"><button class="icon-button surface-solid" title="实体表面" aria-label="实体表面" aria-pressed="true">${icon("box")}</button><button class="icon-button surface-wireframe" title="线框表面" aria-label="线框表面" aria-pressed="false">${icon("grid-3x3")}</button></span></span><span class="surface-summary-actions"><span class="surface-separator" aria-hidden="true"></span><button class="icon-button surface-rebuild" title="重新生成三维表面" aria-label="重新生成三维表面">${icon("refresh-cw")}</button><button class="icon-button surface-remove" title="移除 Mask" aria-label="移除 Mask">${icon("trash-2")}</button></span></summary><div class="surface-label-controls"><div class="surface-labels" aria-label="标签选择与显隐"></div><span class="surface-layer-status" role="status"></span></div>`;
     row.querySelector(".surface-filename")!.textContent = info.volume.name;
     row.querySelector<HTMLElement>(".surface-filename")!.title =
       info.volume.name;
@@ -226,6 +227,7 @@ export class SurfaceView {
       opacity: 0.65,
       wireframe: false,
       hiddenLabels: new Set(),
+      labelClicks: new Map(),
       revision: -1,
       state: "idle",
     };
@@ -351,9 +353,7 @@ export class SurfaceView {
     const select = document.createElement("button");
     select.className = "surface-label-select";
     select.innerHTML = `<span class="surface-label-dot" aria-hidden="true">●</span> ${data.label}`;
-    select.title = `选中标签 ${data.label}；双击定位`;
-    select.setAttribute("aria-label", `选中标签 ${data.label}`);
-    select.onclick = () => {
+    const selectLabel = () => {
       layer.selectedLabel = data.label;
       this.updateSelection(layer);
       if (
@@ -363,26 +363,37 @@ export class SurfaceView {
       )
         this.post({ type: "selectOverlay", layerId: layer.info.id });
     };
-    select.ondblclick = () => this.locateLabel(layer);
-    const toggle = document.createElement("button");
-    toggle.className = "surface-label-toggle";
-    const updateToggle = () => {
-      toggle.innerHTML = icon(mesh.visible ? "eye" : "eye-off");
-      toggle.title = `${mesh.visible ? "隐藏" : "显示"}标签 ${data.label}`;
-      toggle.setAttribute("aria-label", toggle.title);
-      toggle.setAttribute("aria-pressed", String(mesh.visible));
+    const updateVisibility = () => {
+      select.title = `标签 ${data.label}：单击${mesh.visible ? "隐藏" : "显示"}，双击定位`;
+      select.setAttribute("aria-label", select.title);
       pill.dataset.visible = String(mesh.visible);
     };
-    toggle.onclick = () => {
-      mesh.visible = !mesh.visible;
-      if (mesh.visible) layer.hiddenLabels.delete(data.label);
-      else layer.hiddenLabels.add(data.label);
-      updateToggle();
-      this.displayChanged();
-      this.render();
+    const cancelClick = () => {
+      clearTimeout(layer.labelClicks.get(data.label));
+      layer.labelClicks.delete(data.label);
     };
-    updateToggle();
-    pill.append(select, toggle);
+    select.onclick = (event) => {
+      selectLabel();
+      cancelClick();
+      if (event.detail > 1) return;
+      // Wait for a possible double click before changing visibility.
+      layer.labelClicks.set(data.label, setTimeout(() => {
+        layer.labelClicks.delete(data.label);
+        mesh.visible = !mesh.visible;
+        if (mesh.visible) layer.hiddenLabels.delete(data.label);
+        else layer.hiddenLabels.add(data.label);
+        updateVisibility();
+        this.displayChanged();
+        this.render();
+      }, 300));
+    };
+    select.ondblclick = () => {
+      cancelClick();
+      selectLabel();
+      this.locateLabel(layer);
+    };
+    updateVisibility();
+    pill.append(select);
     layer.labels.append(pill);
   }
 
@@ -654,6 +665,8 @@ export class SurfaceView {
     this.renderer?.render(this.scene, this.camera);
   }
   private clearLayer(layer: LayerView) {
+    for (const timer of layer.labelClicks.values()) clearTimeout(timer);
+    layer.labelClicks.clear();
     for (const object of [...layer.group.children]) {
       const mesh = object as SurfaceObject;
       mesh.geometry.dispose();

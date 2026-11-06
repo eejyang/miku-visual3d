@@ -90,6 +90,7 @@ let view: SurfaceView;
 let post: ReturnType<typeof vi.fn>;
 let locate: ReturnType<typeof vi.fn>;
 beforeEach(() => {
+  vi.useFakeTimers();
   document.body.innerHTML =
     '<div id="surfaceLayers"></div><button id="resetSurface"></button><input id="frame" value="0"><div id="renderViewport"><p id="renderMessage"></p></div>';
   globalThis.ResizeObserver = class {
@@ -109,6 +110,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   window.dispatchEvent(new Event("pagehide"));
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 const objects = () => (state.scene!.children[0] as Group).children as Group[];
@@ -152,14 +154,17 @@ it("retains both same-label sources and applies visibility, color, opacity and w
   expect(gtMesh.material.wireframe).toBe(true);
   expect(predMesh.material.opacity).toBe(0.65);
   expect(predMesh.material.wireframe).toBe(false);
-  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
+  row(1).querySelector<HTMLButtonElement>(".surface-label-select")!.click();
+  vi.advanceTimersByTime(300);
   expect(gtMesh.visible).toBe(false);
   expect(predMesh.visible).toBe(true);
   const messages = post.mock.calls.map(([message]) => message);
   expect(
     messages.filter((m) => m.type === "surfacePainted").map((m) => m.layerId),
   ).toEqual(["mask-1", "mask-2"]);
-  expect(messages.every((m) => m.type === "surfacePainted")).toBe(true);
+  expect(messages.filter((m) => m.type !== "surfacePainted")).toEqual([
+    { type: "selectOverlay", layerId: "mask-1" },
+  ]);
 });
 
 it("rebuilds only one source, preserving settings and the other source's geometry", () => {
@@ -179,7 +184,8 @@ it("rebuilds only one source, preserving settings and the other source's geometr
   change(1, "opacity", "0");
   change(1, "wireframe", true);
   change(1, "visible", false);
-  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
+  row(1).querySelector<HTMLButtonElement>(".surface-label-select")!.click();
+  vi.advanceTimersByTime(300);
   view.update("mask-1", 2, { state: "loading", message: "loading" });
   ready("mask-1", 2);
   const gt = objects()[0].children[0] as Mesh;
@@ -254,7 +260,41 @@ it("restores automatic label colors after a manual file-color override", () => {
   );
 });
 
-it("selects labels independently of visibility and locates world-space bounds through the Mask affine", () => {
+it("keeps visibility unchanged through double clicks and cancels clicks on rebuild", () => {
+  ready("mask-1");
+  view.setActiveLayer("mask-1");
+  expect(row(1).querySelector(".surface-label-toggle")).toBeNull();
+  const select = row(1).querySelector<HTMLButtonElement>(".surface-label-select")!;
+  const object = objects()[0].children[0];
+  const doubleClick = () => {
+    select.dispatchEvent(new MouseEvent("click", { detail: 1 }));
+    vi.advanceTimersByTime(100);
+    select.dispatchEvent(new MouseEvent("click", { detail: 2 }));
+    select.dispatchEvent(new MouseEvent("dblclick", { detail: 2 }));
+    vi.advanceTimersByTime(300);
+  };
+  doubleClick();
+  expect(locate).toHaveBeenCalledOnce();
+  expect(object.visible).toBe(true);
+  select.click();
+  vi.advanceTimersByTime(300);
+  expect(object.visible).toBe(false);
+  expect(select.parentElement!.dataset.visible).toBe("false");
+  doubleClick();
+  expect(locate).toHaveBeenCalledTimes(2);
+  expect(object.visible).toBe(false);
+  select.click();
+  vi.advanceTimersByTime(300);
+  expect(object.visible).toBe(true);
+  select.click();
+  view.update("mask-1", 2, { state: "loading", message: "loading" });
+  ready("mask-1", 2);
+  vi.advanceTimersByTime(300);
+  expect(view.displayStyle("mask-1")!.hiddenLabels.size).toBe(0);
+  expect(objects()[0].children[0].visible).toBe(true);
+});
+
+it("toggles labels on single click and locates world-space bounds on double click", () => {
   const affine = [0, -2, 0.5, 100, 3, 0, 0, -50, 0, 0, 4, 20];
   view.setLayers([
     {
@@ -279,7 +319,8 @@ it("selects labels independently of visibility and locates world-space bounds th
   const object = objects()[0].children[0] as Mesh;
   expect(object.visible).toBe(true);
   change(1, "visible", false);
-  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
+  row(1).querySelector<HTMLButtonElement>(".surface-label-select")!.click();
+  vi.advanceTimersByTime(300);
   select.dispatchEvent(new MouseEvent("dblclick"));
   expect(locate).toHaveBeenCalledOnce();
   expect(locate.mock.calls[0][0]).toBe("mask-1");
@@ -317,6 +358,9 @@ it("keeps first-line controls on collapse, preserves display settings and reject
   expect(locate).not.toHaveBeenCalled();
   const summary = row(1).querySelector("summary")!;
   for (const selector of [
+    ".surface-palette",
+    ".surface-color-mode",
+    ".surface-color",
     ".surface-visible",
     ".surface-opacity",
     ".surface-solid",
@@ -325,10 +369,12 @@ it("keeps first-line controls on collapse, preserves display settings and reject
     ".surface-remove",
   ])
     expect(summary.querySelector(selector)).not.toBeNull();
-  expect(summary.querySelector(".surface-color-mode")).toBeNull();
+  expect(
+    summary.querySelector(".surface-color-controls")!.nextElementSibling,
+  ).toBe(summary.querySelector(".surface-opacity-control"));
   expect(
     row(1).querySelector(".surface-label-controls .surface-color-mode"),
-  ).not.toBeNull();
+  ).toBeNull();
   (row(1) as HTMLDetailsElement).open = false;
   change(1, "opacity", "0.2");
   change(1, "wireframe", true);
