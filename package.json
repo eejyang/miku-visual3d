@@ -89,7 +89,7 @@
     "@types/three": "^0.187.0",
     "@types/vscode": "1.85.0",
     "@vscode/test-electron": "^2.5.0",
-    "@vscode/vsce": "^3.9.1",
+    "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.1",
     "happy-dom": "^21.0.4",
     "typescript": "^5.9.3",

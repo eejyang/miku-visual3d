@@ -4,6 +4,7 @@ scripts/**
 node_modules/**
 .vscode/**
 .vscode-test/**
+.github/**
 .gitignore
 package-lock.json
 tsconfig.json
