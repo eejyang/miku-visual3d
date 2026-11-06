@@ -84,7 +84,7 @@ export async function run() {
   const root = process.env.MIKU_VISUAL_TEST_ROOT!,
     scratch = process.env.MIKU_VISUAL_TEST_SCRATCH!;
   const extension = vscode.extensions.getExtension<ExtensionApi>(
-    "miku-local.miku-visual3d",
+    "eejyang.miku-visual3d",
   );
   assert(extension, "Independent extension was not discovered");
   const api = await extension.activate();

@@ -2,10 +2,10 @@
   "name": "miku-visual3d",
   "displayName": "Miku Visual 3D",
   "icon": "media/brand.png",
-  "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces. Supports local and Remote-SSH workspaces.",
+  "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces.",
   "version": "1.0.0",
   "type": "module",
-  "publisher": "miku-local",
+  "publisher": "eejyang",
   "license": "BSD-2-Clause",
   "engines": {
     "vscode": "^1.85.0"
@@ -19,8 +19,7 @@
     "CT",
     "MRI",
     "segmentation",
-    "3D",
-    "Remote-SSH"
+    "3D"
   ],
   "extensionKind": [
     "workspace"

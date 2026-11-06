@@ -1,6 +1,6 @@
 # Miku Visual3D
 
-在 VS Code 中查看 NIfTI 医学影像与分割 Mask，支持本地和 Remote-SSH 工作区。
+在 VS Code 中查看 NIfTI 医学影像与分割 Mask，支持三切面联动和三维表面显示。
 
 ![Miku Visual3D 肺部 CT 与 Mask 四窗查看界面](docs/images/screenshot.png)
 
@@ -13,14 +13,12 @@
 - 窗宽窗位预设、手动调窗、Gray、Gray Inverted、Bone、Viridis、Plasma、Turbo 等 14 种颜色映射。
 - 多份 Mask 对比、标签自动配色、显隐、不透明度、实体与线框显示。
 - 标签选择与定位，同步跳转三个切面并聚焦三维结构。
-- 文件读取、解压和表面提取在工作区主机执行，客户端只接收切片与网格。
 
 ## 使用
 
 1. 在扩展面板选择 **Install from VSIX…**，安装 `builds/miku-visual3d-1.0.0.vsix`，然后重载窗口。
 2. 右键 `.nii` / `.nii.gz` → **Open With… → Miku Visual3D**，或运行 **MikuVisual: Open Image**。
 3. 使用工具栏文件夹图标继续加载文件；已有影像时，也可右键文件选择 **MikuVisual: Add Image**。
-4. Remote-SSH 下，将插件安装到 SSH 主机，并从远程资源管理器打开文件。
 
 | 操作 | 交互 |
 | --- | --- |

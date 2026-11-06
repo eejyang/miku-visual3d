@@ -22,6 +22,7 @@ __pycache__/
 *.nii.gz
 *.dcm
 *.dicom
+*.nrrd
 
 # 原项目参考归档（含其嵌套 Git 仓库）
 /.reference/
