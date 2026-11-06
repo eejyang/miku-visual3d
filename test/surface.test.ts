@@ -29,6 +29,7 @@ async function image(
   name: string,
   frames: number,
   value: (i: number) => number,
+  configure?: (bytes: Buffer) => void,
 ) {
   const bytes = Buffer.alloc(352 + 8 ** 3 * frames * 2);
   bytes.writeInt32LE(348, 0);
@@ -44,6 +45,7 @@ async function image(
   bytes.writeFloatLE(352, 108);
   for (let i = 0; i < 8 ** 3 * frames; i++)
     bytes.writeInt16LE(value(i), 352 + i * 2);
+  configure?.(bytes);
   const path = join(scratch, name);
   await writeFile(path, gzipSync(bytes));
   return { path, name };
@@ -107,7 +109,14 @@ it("reuses a static mask across frames, supports rebuilding, and shuts down pend
 });
 it("keeps slices usable after invalid labels", async () => {
   const { session, messages } = await viewer(1);
-  await session.addOverlay(await image("not-a-label-mask.nii.gz", 1, (i) => i));
+  await session.addOverlay(
+    await image(
+      "not-a-label-mask.nii.gz",
+      1,
+      (i) => i % 2,
+      (bytes) => bytes.writeFloatLE(0.5, 112),
+    ),
+  );
   await session.receive({ type: "surface", frame: 0 });
   await vi.waitFor(() =>
     expect(messages).toContainEqual(
@@ -115,7 +124,7 @@ it("keeps slices usable after invalid labels", async () => {
         type: "surface",
         surface: {
           state: "error",
-          message: expect.stringContaining("128 个标签"),
+          message: expect.stringContaining("整数标签"),
         },
       }),
     ),

@@ -5,6 +5,7 @@ import type {
   SliceRequest,
   VolumeInfo,
   SourceKind,
+  OverlayLayer,
 } from "../protocol";
 import {
   SLICE_AXES,
@@ -13,6 +14,8 @@ import {
   type PlaneDescription,
 } from "./orientation";
 import { SurfaceView } from "./surface";
+import { colormapTable } from "./colormaps";
+import { labelRgb } from "./labelColors";
 import { CT_WINDOW_PRESETS, populateWindowPresets } from "./windowPresets";
 
 declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
@@ -20,22 +23,28 @@ const api = acquireVsCodeApi();
 const surface = new SurfaceView(
   document.getElementById("renderViewport")!,
   (message) => api.postMessage(message),
+  () => drawAll(),
+  (layerId, voxel) => {
+    if (!volume || !voxel.every(Number.isFinite)) return;
+    indices = voxel.map((n, axis) =>
+      Math.max(0, Math.min(volume!.dimensions[axis] - 1, Math.round(n))),
+    );
+    if (activeMaskId !== layerId)
+      api.postMessage({ type: "selectOverlay", layerId });
+    else requestAll();
+    drawAll();
+  },
 );
-let hasOverlay = false;
+let hasSurfaces = false;
+let referenceKind: SourceKind = "image";
+let backgroundId: string | undefined = "reference";
+let layers: OverlayLayer[] = [];
 let sourceKind: SourceKind = "image";
-const labelColors = [
-  [80, 189, 233],
-  [245, 170, 84],
-  [169, 140, 245],
-  [105, 214, 163],
-  [240, 127, 164],
-  [224, 212, 101],
-  [120, 164, 245],
-  [219, 142, 96],
-];
 const $ = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const status = $("status");
+let activeMaskId: string | undefined;
+let showCrosshair = true;
 function report(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
   status.textContent = text;
@@ -68,13 +77,52 @@ let volume: VolumeInfo | undefined;
 let indices = [0, 0, 0];
 let serial = 0;
 let windowInitialized = false;
-let overlayRange: [number, number] | undefined;
 const level = $<HTMLInputElement>("level"),
   windowWidth = $<HTMLInputElement>("window");
 const windowPreset = $<HTMLSelectElement>("windowPreset");
 const viewLayout = $<HTMLSelectElement>("viewLayout");
-const opacity = $<HTMLInputElement>("opacity"),
-  frame = $<HTMLInputElement>("frame");
+const frame = $<HTMLInputElement>("frame");
+const colormap = $<HTMLSelectElement>("colormap");
+const mainImage = $<HTMLSelectElement>("mainImage");
+
+function updateHeader() {
+  if (!volume) return;
+  const images = [
+    ...(referenceKind === "image" ? [{ id: "reference", volume }] : []),
+    ...layers.filter((layer) => layer.kind === "image" && !layer.isReference),
+  ];
+  const current = images.find((image) => image.id === backgroundId)?.volume;
+  $("title").textContent = current?.name ?? "未加载主影像";
+  $("title").title = current?.name ?? "未加载主影像";
+  $("title").hidden = images.length > 1;
+  mainImage.hidden = images.length < 2;
+  mainImage.replaceChildren(
+    ...images.map((image) => {
+      const option = document.createElement("option");
+      option.value = image.id;
+      option.textContent = image.volume.name;
+      return option;
+    }),
+  );
+  mainImage.value = backgroundId ?? "";
+  mainImage.title = current?.name ?? "选择主影像";
+  // The protocol supplies geometry, but no datatype or whole-volume intensity
+  // range. Never present current-slice extrema as whole-image metadata.
+  const fields: string[] = [];
+  if (current) {
+    fields.push(current.dimensions.join(" × "));
+    const unit = ({ 1: "m", 2: "mm", 3: "µm" } as Record<number, string>)[
+      current.spatialUnits & 7
+    ];
+    if (unit && current.spacing.every((n) => Number.isFinite(n) && n > 0))
+      fields.push(
+        `${current.spacing.map((n) => Number(n.toPrecision(6))).join(" × ")} ${unit}`,
+      );
+    if (current.frames > 1) fields.push(`${current.frames} 帧`);
+  }
+  $("details").textContent = fields.join(" · ");
+  $("details").title = fields.join(" · ");
+}
 
 function decode(plane: SlicePixels): Float32Array {
   const bytes = Uint8Array.from(atob(plane.pixels), (c) => c.charCodeAt(0));
@@ -88,9 +136,17 @@ function decode(plane: SlicePixels): Float32Array {
 function setSourceKind(kind: SourceKind) {
   const changed = sourceKind !== kind;
   sourceKind = kind;
-  for (const id of ["windowPresetLabel", "levelLabel", "windowLabel"])
+  for (const id of [
+    "windowPresetLabel",
+    "levelLabel",
+    "windowLabel",
+    "colormapLabel",
+  ])
     $(id).hidden = kind === "mask";
-  if (changed) opacity.value = kind === "mask" ? "1" : "0.5";
+  if (changed) {
+    windowInitialized = false;
+    windowPreset.value = "auto";
+  }
   drawAll();
 }
 function fit(plane: Plane) {
@@ -115,7 +171,7 @@ function fit(plane: Plane) {
     (1 - (indices[v] + 0.5) / volume.dimensions[v]) * height;
   plane.crosshair.style.setProperty("--crosshair-x", `${Math.round(x)}px`);
   plane.crosshair.style.setProperty("--crosshair-y", `${Math.round(y)}px`);
-  plane.crosshair.hidden = !plane.current;
+  plane.crosshair.hidden = !showCrosshair || !plane.current;
 }
 function draw(plane: Plane) {
   if (!plane.current || !volume) return;
@@ -125,8 +181,18 @@ function draw(plane: Plane) {
   const image = plane.context.createImageData(base.width, base.height);
   const width = Math.max(1e-5, Number(windowWidth.value) || 1);
   const low = (Number(level.value) || 0) - width / 2;
-  const alpha = Number(opacity.value);
-  const [omin, omax] = overlayRange || [0, 1];
+  const style = surface.displayStyle(activeMaskId);
+  const alpha =
+    style?.visible === false
+      ? 0
+      : (style?.opacity ?? (sourceKind === "mask" ? 1 : 0.65));
+  const custom =
+    style?.colorMode === "custom"
+      ? [1, 3, 5].map((start) =>
+          parseInt(style.color.slice(start, start + 2), 16),
+        )
+      : undefined;
+  const table = colormapTable(colormap.value);
   let visiblePixels = 0;
   for (let y = 0; y < base.height; y++)
     for (let x = 0; x < base.width; x++) {
@@ -138,17 +204,18 @@ function draw(plane: Plane) {
         sourceKind !== "mask" && Number.isFinite(value)
           ? Math.max(0, Math.min(255, ((value - low) * 255) / width))
           : 0;
-      const a = Number.isFinite(o) && o !== 0 ? alpha : 0;
-      const t = Number.isFinite(o)
-        ? Math.max(0, Math.min(1, (o - omin) / (omax - omin || 1)))
-        : 0;
-      const color =
-        sourceKind === "mask" && a
-          ? labelColors[(Math.max(1, Math.round(o)) - 1) % labelColors.length]
-          : undefined;
-      image.data[p] = gray * (1 - a) + (color ? color[0] : 255) * a;
-      image.data[p + 1] = gray * (1 - a) + (color ? color[1] : 255 * t) * a;
-      image.data[p + 2] = gray * (1 - a) + (color ? color[2] : 0) * a;
+      const a =
+        Number.isFinite(o) && o !== 0 && !style?.hiddenLabels.has(o)
+          ? alpha
+          : 0;
+      const color = a ? (custom ?? labelRgb(o)) : undefined;
+      const offset = Math.round(gray) * 3;
+      for (let channel = 0; channel < 3; channel++) {
+        const background =
+          sourceKind === "mask" ? 0 : table ? table[offset + channel] : gray;
+        image.data[p + channel] =
+          background * (1 - a) + (color ? color[channel] : 0) * a;
+      }
       image.data[p + 3] = 255;
       if (image.data[p] || image.data[p + 1] || image.data[p + 2])
         visiblePixels++;
@@ -357,6 +424,18 @@ function createPlane(description: PlaneDescription): Plane {
 try {
   $("loadImage").onclick = () => api.postMessage({ type: "openImage" });
   viewLayout.onchange = applyLayout;
+  mainImage.onchange = () =>
+    api.postMessage({ type: "selectOverlay", layerId: mainImage.value });
+  colormap.onchange = drawAll;
+  $("toggleCrosshair").onclick = () => {
+    showCrosshair = !showCrosshair;
+    $("toggleCrosshair").setAttribute("aria-pressed", String(showCrosshair));
+    planes.forEach(fit);
+  };
+  $("resetDisplay").onclick = () => {
+    autoWindow();
+    planes.forEach(fit);
+  };
   populateWindowPresets(windowPreset);
   windowPreset.onchange = () => {
     if (windowPreset.value === "auto") {
@@ -379,25 +458,11 @@ try {
     windowPreset.value = "custom";
     drawAll();
   };
-  opacity.oninput = drawAll;
-  $<HTMLSelectElement>("activeOverlay").onchange = () =>
-    api.postMessage({
-      type: "selectOverlay",
-      layerId: $<HTMLSelectElement>("activeOverlay").value,
-    });
-  $("addOverlay").onclick = () => api.postMessage({ type: "overlay" });
-  $("removeOverlay").onclick = () => api.postMessage({ type: "removeOverlay" });
-  $("rebuildSurface").onclick = () =>
-    api.postMessage({
-      type: "surface",
-      frame: Number(frame.value),
-      force: true,
-    });
   frame.oninput = () => {
     $("frameValue").textContent =
       `${Number(frame.value) + 1} / ${volume!.frames}`;
     requestAll();
-    if (hasOverlay)
+    if (hasSurfaces)
       api.postMessage({ type: "surface", frame: Number(frame.value) });
   };
   window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
@@ -408,14 +473,20 @@ try {
         case "volume":
           if (volume) return;
           volume = message.volume;
-          setSourceKind(message.sourceKind ?? "image");
+          referenceKind = message.sourceKind ?? "image";
+          setSourceKind(referenceKind);
+          updateHeader();
           clearInterval(heartbeat);
-          $("title").textContent = volume.name;
-          $("details").textContent =
-            `${volume.dimensions.join(" × ")} · ${volume.frames} 帧 · ${volume.hasOrientation ? "按影像空间方向显示 · 保持原始切面" : "缺少空间方向信息，无法确定解剖切面"}`;
-          $("displayControls").hidden = false;
-          $<HTMLButtonElement>("addOverlay").disabled = false;
-          opacity.disabled = false;
+          for (const id of [
+            "viewLayout",
+            "toggleCrosshair",
+            "colormap",
+            "windowPreset",
+            "level",
+            "window",
+            "resetDisplay",
+          ])
+            $<HTMLInputElement>(id).disabled = false;
           $("panels").hidden = false;
           $("startup").hidden = true;
           indices = volume.dimensions.map((n) => Math.floor(n / 2));
@@ -439,8 +510,6 @@ try {
             plane.overlay = message.overlay
               ? decode(message.overlay)
               : new Float32Array(0);
-            if (message.overlay && !overlayRange)
-              overlayRange = [message.overlay.min, message.overlay.max];
             plane.wanted = undefined;
             if (!windowInitialized) autoWindow();
             else draw(plane);
@@ -451,23 +520,23 @@ try {
           break;
         }
         case "overlay":
-          hasOverlay = !!message.volume;
-          surface.setLayers(message.layers);
-          const activeOverlay = $<HTMLSelectElement>("activeOverlay");
-          activeOverlay.replaceChildren();
-          for (const layer of message.layers) {
-            const option = document.createElement("option");
-            option.value = layer.id;
-            option.textContent = layer.volume.name;
-            activeOverlay.append(option);
-          }
-          activeOverlay.value = message.activeId ?? "";
-          $("overlaySelector").hidden = !message.layers.length;
-          if (hasOverlay)
+          layers = message.layers;
+          if (
+            message.backgroundId !== backgroundId &&
+            windowPreset.value === "auto"
+          )
+            windowInitialized = false;
+          backgroundId =
+            message.backgroundId ??
+            (referenceKind === "image" ? "reference" : undefined);
+          activeMaskId = message.activeId;
+          hasSurfaces = layers.some((layer) => layer.kind !== "image");
+          surface.setLayers(layers.filter((layer) => layer.kind !== "image"));
+          surface.setActiveLayer(message.activeId);
+          updateHeader();
+          setSourceKind(message.backgroundKind ?? referenceKind);
+          if (hasSurfaces)
             api.postMessage({ type: "surface", frame: Number(frame.value) });
-          $("overlayName").textContent = message.volume?.name || "";
-          $<HTMLButtonElement>("removeOverlay").disabled = !message.volume;
-          overlayRange = undefined;
           for (const plane of planes) {
             plane.inFlight = false;
             plane.activeId = undefined;

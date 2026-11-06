@@ -50,16 +50,16 @@ body {
 }
 #app {
   height: 100vh;
-  min-height: 440px;
+  min-height: 300px;
   display: flex;
   flex-direction: column;
 }
 header {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 10px 14px 8px;
+  gap: 10px;
+  padding: 7px 14px;
+  overflow: hidden;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
 }
@@ -75,19 +75,36 @@ header {
   border-radius: 7px;
   flex: none;
 }
-.brand small {
-  color: var(--subtle);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  border-left: 1px solid var(--line);
-  padding-left: 10px;
+.brand-logo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex: none;
 }
+.brand small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+.brand-wordmark {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+}
+
 h1 {
   border-left: 1px solid var(--line);
   padding-left: 14px;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
+  flex-shrink: 0;
+  max-width: 45%;
   font-size: 13px;
   font-weight: 500;
   margin: 0;
@@ -96,8 +113,20 @@ h1 {
   white-space: nowrap;
 }
 header p {
-  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
+}
+#mainImage {
+  min-width: 80px;
+  max-width: 35%;
+  padding: 3px 6px;
+}
+header .brand {
+  flex: none;
+  white-space: nowrap;
 }
 p {
   color: var(--muted);
@@ -106,31 +135,21 @@ p {
 }
 #toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 14px 8px;
-  flex-shrink: 0;
-}
-.toolbar-row {
-  display: flex;
   align-items: center;
-  gap: 8px 12px;
-  min-width: 0;
+  gap: 8px;
+  padding: 6px 14px;
+  flex-shrink: 0;
   overflow-x: auto;
-  padding: 2px 0 4px;
   scrollbar-width: thin;
 }
-.toolbar-row > * {
+#toolbar > * {
   flex-shrink: 0;
 }
-.toolbar-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-#displayControls {
-  border-top: 1px solid var(--line);
-  padding-top: 6px;
+.toolbar-separator {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
 }
 label {
   display: inline-flex;
@@ -149,12 +168,19 @@ button {
   border-radius: 8px;
   padding: 5px 8px;
 }
-#windowPreset {
-  width: 140px;
-  max-width: 100%;
+.toolbar-menu > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.toolbar-menu:has(select:disabled) > svg {
+  opacity: 0.45;
+}
+#colormap {
+  width: 100px;
   cursor: pointer;
 }
-#viewLayout {
+#windowPreset {
   width: 140px;
   max-width: 100%;
   cursor: pointer;
@@ -182,13 +208,6 @@ button {
 button:hover {
   background: var(--hover-fill);
 }
-#addOverlay {
-  background: var(--blue);
-  color: #fff;
-}
-#addOverlay:hover {
-  background: var(--blue-hover);
-}
 input:focus-visible,
 select:focus-visible {
   border-color: var(--blue);
@@ -202,12 +221,6 @@ select:focus-visible,
 input:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
-}
-#overlayName {
-  color: var(--muted);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 #panels {
   display: grid;
@@ -406,9 +419,6 @@ footer {
   #toolbar {
     font-size: 11px;
   }
-  .toolbar-row {
-    gap: 6px 8px;
-  }
   input[type="number"] {
     width: 65px;
   }
@@ -429,8 +439,8 @@ footer {
   .brand {
     font-size: 14px;
   }
-  .brand small {
-    display: none;
+  .brand-wordmark {
+    font-size: 13px;
   }
   #panels {
     gap: 6px;
@@ -478,26 +488,6 @@ footer {
 .render-message.error {
   color: #f48771;
 }
-.render-legend {
-  position: absolute;
-  left: 8px;
-  bottom: 24px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-height: 35%;
-  overflow: auto;
-  z-index: 2;
-}
-.render-legend button {
-  padding: 2px 7px;
-  font-size: 11px;
-  background: #171c26e6;
-  border: 1px solid #ffffff26;
-}
-.render-legend button[aria-pressed="false"] {
-  opacity: 0.35;
-}
 .render-hint {
   position: absolute;
   bottom: 6px;
@@ -506,87 +496,249 @@ footer {
   font-size: 10px;
   pointer-events: none;
 }
-#activeOverlay {
-  max-width: 190px;
-}
-#surfaceManager {
+#surfaceLayers {
   flex-shrink: 0;
-  margin: 0 10px 8px;
+  max-height: 26vh;
+  overflow: auto;
+  margin: 0 10px 7px;
+}
+.surface-layer {
+  margin-bottom: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
 }
-#surfaceManager summary {
-  cursor: pointer;
-  padding: 6px 10px;
-  color: var(--muted);
+.surface-layer:last-child {
+  margin-bottom: 0;
 }
-#surfaceLayers {
-  max-height: 160px;
-  overflow: auto;
-  padding: 0 10px 5px;
-}
-.surface-layer {
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
-}
-.surface-layer-controls {
+.surface-layer summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: 4px 7px;
+  list-style: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: var(--muted);
 }
-.surface-layer-controls .surface-name {
-  width: 180px;
-  max-width: 100%;
+.surface-layer summary::-webkit-details-marker {
+  display: none;
 }
-.surface-layer-controls .surface-color {
+.surface-layer summary::before {
+  content: "›";
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+}
+.surface-layer[open] > summary::before {
+  transform: rotate(90deg);
+}
+.surface-file-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.surface-filename {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.surface-label-count {
+  flex: none;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.surface-display-controls,
+.surface-modes,
+.surface-summary-actions,
+.surface-label-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.surface-display-controls {
+  flex-wrap: wrap;
+}
+.surface-modes,
+.surface-summary-actions {
+  flex: none;
+  gap: 2px;
+}
+.surface-summary-actions {
+  margin-left: auto;
+}
+.surface-layer .icon-button {
+  flex: none;
+}
+.surface-opacity-control {
+  gap: 5px;
+}
+.surface-layer .surface-opacity {
+  width: 85px;
+}
+.surface-opacity-control output {
+  min-width: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.surface-separator {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+  margin: 0 3px;
+}
+.surface-label-controls {
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 8px 6px;
+}
+.surface-palette {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--muted);
+}
+.surface-color-mode {
+  max-width: 115px;
+  height: 27px;
+  padding: 3px 6px;
+}
+.surface-color {
   width: 30px;
   height: 27px;
   padding: 2px;
   cursor: pointer;
 }
-.surface-layer-controls input[type="range"] {
-  width: 85px;
-}
-.surface-layer-controls output {
-  min-width: 30px;
-  font-variant-numeric: tabular-nums;
-}
-.surface-layer-controls input[type="checkbox"] {
-  accent-color: var(--blue);
-  margin: 0;
-}
 .surface-layer-status {
   font-size: 11px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .surface-labels {
   display: flex;
+  align-items: center;
+  flex: 1 1 0;
   flex-wrap: wrap;
+  min-width: 60px;
   gap: 4px;
-  margin-top: 5px;
 }
 .surface-labels:empty {
   display: none;
 }
-.surface-labels button {
-  padding: 2px 8px;
+.surface-label-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--soft-fill);
+  overflow: hidden;
+}
+.surface-label-pill[data-selected="true"] {
+  border-color: var(--blue);
+  background: var(--hover-fill);
+}
+.surface-label-pill button {
+  color: inherit;
+  background: transparent;
+  border-radius: 0;
+  padding: 3px 6px;
+}
+.surface-label-pill button:hover {
+  background: var(--hover-fill);
+}
+.surface-label-select {
+  min-width: 30px;
+  overflow-wrap: anywhere;
+}
+.surface-label-dot {
   font-size: 10px;
 }
-.surface-labels button[aria-pressed="false"] {
-  opacity: 0.35;
+.surface-label-pill[data-visible="false"] .surface-label-dot {
+  opacity: 0.3;
 }
-.render-legend button {
-  max-width: 180px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.surface-label-pill .surface-label-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px 3px 2px;
 }
-#loadImage {
-  background: var(--blue);
-  color: #fff;
+.surface-label-toggle svg {
+  width: 12px;
+  height: 12px;
 }
-#loadImage:hover {
-  background: var(--blue-hover);
+.icon-button,
+.icon-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  vertical-align: middle;
+}
+.icon-button svg,
+.icon-select svg {
+  flex: none;
+  pointer-events: none;
+}
+.icon-button:hover,
+.icon-select:hover {
+  background: var(--hover-fill);
+  color: var(--text);
+}
+.icon-button[aria-pressed="true"] {
+  color: var(--blue);
+  background: var(--soft-fill);
+}
+.icon-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.icon-select:focus-within {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.icon-select:has(select:disabled) {
+  opacity: 0.45;
+}
+.icon-select:has(select:disabled) select {
+  cursor: default;
+}
+#toolbar input,
+#toolbar select {
+  height: 28px;
+  border-radius: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+#toolbar label {
+  gap: 5px;
+}
+@media (max-width: 600px) {
+  #toolbar {
+    gap: 6px;
+  }
+  header p {
+    display: none;
+  }
+  h1 {
+    flex-shrink: 1;
+    max-width: none;
+  }
 }

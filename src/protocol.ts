@@ -37,6 +37,8 @@ export interface SurfaceMesh {
 export interface OverlayLayer {
   id: string;
   volume: VolumeInfo;
+  kind?: SourceKind;
+  isReference?: boolean;
 }
 
 export type SurfaceUpdate =
@@ -81,6 +83,8 @@ export type HostMessage =
       volume: VolumeInfo | null;
       layers: OverlayLayer[];
       activeId?: string;
+      backgroundKind?: SourceKind;
+      backgroundId?: string;
     }
   | {
       type: "surface";

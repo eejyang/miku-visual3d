@@ -89,6 +89,7 @@ it("inherits base geometry and keeps the current overlay if replacement dimensio
       bytes.writeInt16LE(1, 254);
       bytes.fill(0, 280, 328);
       bytes.writeUInt8(2, 123);
+      for (let i = 352; i < bytes.length; i += 2) bytes.writeInt16LE(100, i);
     }),
   );
   await session.receive({ type: "overlay" });
@@ -163,8 +164,12 @@ it("retains multiple sources while selecting the requested source for 2D pixels"
     await image("base.nii.gz", 2),
   );
   await session.addOverlay([
-    await image("GT.nii.gz", 1, 100),
-    await image("Prediction.nii.gz", 1, 200),
+    await image("GT.nii.gz", 1, 100, 16, (bytes) => {
+      for (let i = 352; i < bytes.length; i += 2) bytes.writeInt16LE(100, i);
+    }),
+    await image("Prediction.nii.gz", 1, 200, 16, (bytes) => {
+      for (let i = 352; i < bytes.length; i += 2) bytes.writeInt16LE(200, i);
+    }),
   ]);
   expect(messages.at(-1)).toMatchObject({
     type: "overlay",
@@ -249,4 +254,61 @@ it("does not publish an image mode while a slow mask classification is still pen
   expect(messages.filter((m) => m.type === "volume")).toMatchObject([
     { sourceKind: "mask" },
   ]);
+});
+
+it("switches loaded images and masks in opening order while keeping the first geometry", async () => {
+  const { session, messages, slices } = await viewer(
+    await image("reference.nii.gz", 2),
+  );
+  const mask = await image("segmentation.nii.gz", 1, 1, 16, (bytes) => {
+    for (let i = 352; i < bytes.length; i += 2) bytes.writeInt16LE(1, i);
+  });
+  const other = await image("another-image.nii.gz", 1, 500);
+  await session.addOverlay([mask, other]);
+  const info = messages.filter((m) => m.type === "overlay").at(-1)!;
+  expect(info).toMatchObject({
+    activeId: "mask-2",
+    backgroundKind: "image",
+    layers: [
+      { kind: "mask", volume: { name: "segmentation.nii.gz" } },
+      { kind: "image", volume: { name: "another-image.nii.gz" } },
+    ],
+  });
+  await session.receive({
+    type: "slice",
+    request: { id: 1, axis: 2, index: 0, frame: 1 },
+  });
+  await vi.waitFor(() => expect(slices()).toHaveLength(1));
+  expect(Buffer.from(slices()[0].base.pixels, "base64").readFloatLE(0)).toBe(
+    500,
+  );
+  expect(slices()[0].overlay).toBeUndefined();
+  await session.receive({ type: "selectOverlay", layerId: "mask-1" });
+  await session.receive({
+    type: "slice",
+    request: { id: 2, axis: 2, index: 0, frame: 1 },
+  });
+  await vi.waitFor(() => expect(slices()).toHaveLength(2));
+  expect(Buffer.from(slices()[1].base.pixels, "base64").readFloatLE(0)).toBe(
+    500,
+  );
+  expect(
+    Buffer.from(slices()[1].overlay!.pixels, "base64").readFloatLE(0),
+  ).toBe(1);
+  await session.receive({ type: "selectOverlay", layerId: "reference" });
+  await session.receive({
+    type: "slice",
+    request: { id: 3, axis: 2, index: 0, frame: 1 },
+  });
+  await vi.waitFor(() => expect(slices()).toHaveLength(3));
+  expect(Buffer.from(slices()[2].base.pixels, "base64").readFloatLE(0)).toBe(
+    4096,
+  );
+  expect(slices()[2].overlay).toBeUndefined();
+  await session.receive({ type: "selectOverlay", layerId: "mask-1" });
+  await session.receive({ type: "removeOverlay", layerId: "mask-2" });
+  expect(messages.at(-1)).toMatchObject({
+    activeId: "mask-1",
+    layers: [{ id: "mask-1" }],
+  });
 });

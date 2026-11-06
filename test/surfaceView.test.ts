@@ -1,10 +1,19 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Group, Scene, Mesh } from "three";
+import {
+  Vector3,
+  type Group,
+  type Scene,
+  type Mesh,
+  type PerspectiveCamera,
+} from "three";
 import { SurfaceView } from "../src/webview/surface";
 import type { OverlayLayer, SurfaceMesh } from "../src/protocol";
 
-const state = vi.hoisted(() => ({ scene: undefined as Scene | undefined }));
+const state = vi.hoisted(() => ({
+  scene: undefined as Scene | undefined,
+  camera: undefined as PerspectiveCamera | undefined,
+}));
 vi.mock("three", async (original) => {
   const three = await original<typeof import("three")>();
   return {
@@ -15,8 +24,9 @@ vi.mock("three", async (original) => {
       setSize() {}
       setRenderTarget() {}
       dispose() {}
-      render(scene: Scene) {
+      render(scene: Scene, camera: PerspectiveCamera) {
         state.scene = scene;
+        state.camera = camera;
       }
       readRenderTargetPixels(
         _target: unknown,
@@ -66,24 +76,35 @@ function control(id: number, name: string) {
 }
 function change(id: number, name: string, value: string | boolean) {
   const input = control(id, name);
-  if (typeof value === "boolean") input.checked = value;
-  else input.value = value;
+  if (typeof value === "boolean") {
+    if ((input.getAttribute("aria-pressed") === "true") !== value)
+      input.click();
+    return;
+  }
+  input.value = value;
   input.dispatchEvent(
     new Event(typeof value === "boolean" ? "change" : "input"),
   );
 }
 let view: SurfaceView;
 let post: ReturnType<typeof vi.fn>;
+let locate: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   document.body.innerHTML =
-    '<details id="surfaceManager"><span id="surfaceLayerCount"></span><div id="surfaceLayers"></div></details><button id="resetSurface"></button><button id="rebuildSurface"></button><input id="frame" value="0"><div id="renderViewport"><p id="renderMessage"></p><span id="renderCount"></span><div id="renderLegend"></div></div>';
+    '<div id="surfaceLayers"></div><button id="resetSurface"></button><input id="frame" value="0"><div id="renderViewport"><p id="renderMessage"></p></div>';
   globalThis.ResizeObserver = class {
     observe() {}
     disconnect() {}
     unobserve() {}
   };
   post = vi.fn();
-  view = new SurfaceView(document.getElementById("renderViewport")!, post);
+  locate = vi.fn();
+  view = new SurfaceView(
+    document.getElementById("renderViewport")!,
+    post,
+    () => {},
+    locate,
+  );
   view.setLayers(infos);
 });
 afterEach(() => {
@@ -106,13 +127,20 @@ it("retains both same-label sources and applies visibility, color, opacity and w
   const [gt, pred] = objects();
   const gtMesh = gt.children[0] as Mesh,
     predMesh = pred.children[0] as Mesh;
-  expect(gtMesh.material.color.getHexString()).not.toBe(
+  expect(gtMesh.material.color.getHexString()).toBe(
     predMesh.material.color.getHexString(),
   );
-  change(1, "name", "GT");
-  expect(document.querySelector("#renderLegend button")!.textContent).toBe(
-    "● GT",
+  expect(gtMesh.material.color.getHexString()).not.toBe(
+    (gt.children[1] as Mesh).material.color.getHexString(),
   );
+  expect(row(1).tagName).toBe("DETAILS");
+  expect(row(1).querySelector(".surface-filename")!.textContent).toBe(
+    "GT.nii.gz",
+  );
+  expect(row(1).querySelector(".surface-label-count")!.textContent).toBe(
+    "· 2 标签",
+  );
+  expect(row(1).querySelector(".surface-name")).toBeNull();
   change(1, "color", "#ff0000");
   change(1, "opacity", "0.25");
   change(1, "wireframe", true);
@@ -124,7 +152,7 @@ it("retains both same-label sources and applies visibility, color, opacity and w
   expect(gtMesh.material.wireframe).toBe(true);
   expect(predMesh.material.opacity).toBe(0.65);
   expect(predMesh.material.wireframe).toBe(false);
-  row(1).querySelector<HTMLButtonElement>(".surface-labels button")!.click();
+  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
   expect(gtMesh.visible).toBe(false);
   expect(predMesh.visible).toBe(true);
   const messages = post.mock.calls.map(([message]) => message);
@@ -138,11 +166,20 @@ it("rebuilds only one source, preserving settings and the other source's geometr
   ready("mask-1");
   ready("mask-2");
   const pred = objects()[1].children[0];
+  (row(1) as HTMLDetailsElement).open = false;
+  row(1).querySelector<HTMLButtonElement>(".surface-rebuild")!.click();
+  expect(post).toHaveBeenCalledWith({
+    type: "surface",
+    layerId: "mask-1",
+    frame: 0,
+    force: true,
+  });
+  expect((row(1) as HTMLDetailsElement).open).toBe(false);
   change(1, "color", "#000000");
   change(1, "opacity", "0");
   change(1, "wireframe", true);
   change(1, "visible", false);
-  row(1).querySelector<HTMLButtonElement>(".surface-labels button")!.click();
+  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
   view.update("mask-1", 2, { state: "loading", message: "loading" });
   ready("mask-1", 2);
   const gt = objects()[0].children[0] as Mesh;
@@ -153,6 +190,8 @@ it("rebuilds only one source, preserving settings and the other source's geometr
   expect(gt.visible).toBe(false);
   expect(objects()[0].visible).toBe(false);
   expect(control(1, "color").value).toBe("#000000");
+  view.setLayers(infos);
+  expect((row(1) as HTMLDetailsElement).open).toBe(false);
   view.update("mask-1", 1, { state: "error", message: "stale" });
   expect(objects()[0].children[0]).toBe(gt);
   expect(
@@ -184,4 +223,116 @@ it("isolates errors and removes only the requested source and its GPU resources"
   expect(document.querySelector('[data-layer-id="mask-1"]')).toBeNull();
   ready("mask-1", 3);
   expect(objects()).toHaveLength(1);
+});
+
+it("restores automatic label colors after a manual file-color override", () => {
+  ready("mask-1");
+  ready("mask-2");
+  expect(control(1, "color").disabled).toBe(true);
+  change(1, "color", "#ff0000");
+  const [gt, pred] = objects();
+  expect((gt.children[0] as Mesh).material.color.getHexString()).toBe("ff0000");
+  expect((gt.children[1] as Mesh).material.color.getHexString()).toBe("ff0000");
+  const mode = row(1).querySelector<HTMLSelectElement>(".surface-color-mode")!;
+  mode.value = "auto";
+  mode.dispatchEvent(new Event("change"));
+  expect(control(1, "color").disabled).toBe(true);
+  expect((gt.children[0] as Mesh).material.color.getHexString()).toBe(
+    (pred.children[0] as Mesh).material.color.getHexString(),
+  );
+  expect((gt.children[0] as Mesh).material.color.getHexString()).not.toBe(
+    (gt.children[1] as Mesh).material.color.getHexString(),
+  );
+});
+
+it("selects labels independently of visibility and locates world-space bounds through the Mask affine", () => {
+  const affine = [0, -2, 0.5, 100, 3, 0, 0, -50, 0, 0, 4, 20];
+  view.setLayers([
+    {
+      ...infos[0],
+      volume: { ...infos[0].volume, affine, dimensions: [10, 10, 10] },
+    },
+  ]);
+  const data = mesh(7);
+  const vertices = Buffer.alloc(36);
+  [97.5, -47, 32, 97.5, -35, 32, 91.5, -47, 48].forEach((value, i) =>
+    vertices.writeFloatLE(value, i * 4),
+  );
+  data.vertices = vertices.toString("base64");
+  view.update("mask-1", 1, { state: "ready", frame: 0, meshes: [data] });
+  view.setActiveLayer("mask-1");
+  const locateButton =
+    row(1).querySelector<HTMLButtonElement>(".surface-locate")!;
+  expect(locateButton.disabled).toBe(true);
+  const select = row(1).querySelector<HTMLButtonElement>(
+    ".surface-label-select",
+  )!;
+  select.click();
+  expect(select.getAttribute("aria-pressed")).toBe("true");
+  expect(locateButton.disabled).toBe(false);
+  const object = objects()[0].children[0] as Mesh;
+  expect(object.visible).toBe(true);
+  change(1, "visible", false);
+  row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
+  locateButton.click();
+  expect(locate).toHaveBeenCalledOnce();
+  expect(locate.mock.calls[0][0]).toBe("mask-1");
+  locate.mock.calls[0][1].forEach((n: number, i: number) =>
+    expect(n).toBeCloseTo([3, 4, 5][i], 6),
+  );
+  const projected = new Vector3(94.5, -41, 40).project(state.camera!);
+  expect(projected.x).toBeCloseTo(0, 6);
+  expect(projected.y).toBeCloseTo(0, 6);
+  expect(objects()[0].visible).toBe(false);
+  expect(object.visible).toBe(false);
+  expect(view.displayStyle("mask-1")!.hiddenLabels.has(7)).toBe(true);
+  select.dispatchEvent(new MouseEvent("dblclick"));
+  expect(locate).toHaveBeenCalledTimes(2);
+  view.update("mask-1", 2, { state: "loading", message: "loading" });
+  expect(locateButton.disabled).toBe(true);
+  ready("mask-1", 2);
+  expect(locateButton.disabled).toBe(true); // label 7 is absent in this frame.
+});
+
+it("keeps first-line controls on collapse, preserves display settings and rejects singular localization", () => {
+  const original = {
+    ...infos[0],
+    volume: { ...infos[0].volume, affine: new Array(12).fill(0) },
+  };
+  view.setLayers([original]);
+  ready("mask-1");
+  row(1).querySelector<HTMLButtonElement>(".surface-label-select")!.click();
+  expect(control(1, "locate").disabled).toBe(true);
+  const summary = row(1).querySelector("summary")!;
+  for (const selector of [
+    ".surface-visible",
+    ".surface-locate",
+    ".surface-opacity",
+    ".surface-solid",
+    ".surface-wireframe",
+    ".surface-rebuild",
+    ".surface-remove",
+  ])
+    expect(summary.querySelector(selector)).not.toBeNull();
+  expect(summary.querySelector(".surface-color-mode")).toBeNull();
+  expect(
+    row(1).querySelector(".surface-label-controls .surface-color-mode"),
+  ).not.toBeNull();
+  (row(1) as HTMLDetailsElement).open = false;
+  change(1, "opacity", "0.2");
+  change(1, "wireframe", true);
+  change(1, "color", "#ff0000");
+  change(1, "visible", false);
+  expect(control(1, "visible").title).toBe("显示标签");
+  change(1, "visible", true);
+  expect(control(1, "visible").title).toBe("隐藏标签");
+  const object = objects()[0].children[0] as Mesh;
+  expect(object.material.opacity).toBe(0.2);
+  expect(object.material.color.getHexString()).toBe("ff0000");
+  expect(object.material.wireframe).toBe(true);
+  expect(control(1, "solid").getAttribute("aria-pressed")).toBe("false");
+  control(1, "solid").click();
+  expect(object.material.wireframe).toBe(false);
+  expect(control(1, "wireframe").getAttribute("aria-pressed")).toBe("false");
+  expect((row(1) as HTMLDetailsElement).open).toBe(false);
 });

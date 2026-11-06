@@ -43,6 +43,7 @@ export interface Host {
 
 interface Layer {
   id: string;
+  kind: SourceKind;
   volume: RemoteVolume;
   sourcePath: string;
   key: string;
@@ -69,6 +70,8 @@ export class ViewerSession {
   };
   private base?: RemoteVolume;
   private overlay?: RemoteVolume;
+  private image?: RemoteVolume;
+  private classifyingLayers = new Map<RemoteVolume, Promise<SourceKind>>();
   private activeId?: string;
   private sourceKind: SourceKind = "image";
   private layers = new Map<string, Layer>();
@@ -174,6 +177,8 @@ export class ViewerSession {
             this.sourceKind = await this.classifying;
             if (this.closed) return;
             this.diagnostics.sourceKind = this.sourceKind;
+            this.image = this.sourceKind === "image" ? this.base : undefined;
+            this.activeId = "reference";
             this.diagnostics.loaded = true;
             this.host.log(
               `Loaded ${this.base.info.dimensions.join("×")}, ${this.base.info.frames} frame(s)`,
@@ -220,15 +225,25 @@ export class ViewerSession {
         case "removeOverlay":
           this.removeLayer(message.layerId ?? this.activeId);
           break;
-        case "selectOverlay": {
-          const layer = this.layers.get(message.layerId);
-          if (!layer || this.activeId === layer.id) break;
-          this.activeId = layer.id;
-          this.overlay = layer.volume;
-          this.layerRevision++;
-          this.postLayers();
+        case "selectOverlay":
+          if (message.layerId === "reference") {
+            if (this.sourceKind === "mask") this.attachSourceMask();
+            else {
+              this.image = this.base;
+              this.overlay = undefined;
+              this.activeId = "reference";
+              this.layerRevision++;
+              this.postLayers();
+            }
+          } else {
+            const layer = this.layers.get(message.layerId);
+            if (layer && this.activeId !== layer.id) {
+              this.selectLayer(layer);
+              this.layerRevision++;
+              this.postLayers();
+            }
+          }
           break;
-        }
         case "surface":
           if (
             this.base &&
@@ -237,7 +252,10 @@ export class ViewerSession {
             message.frame < this.base.info.frames
           ) {
             for (const layer of this.layers.values())
-              if (!message.layerId || layer.id === message.layerId)
+              if (
+                layer.kind === "mask" &&
+                (!message.layerId || layer.id === message.layerId)
+              )
                 this.scheduleSurface(layer, message.frame, !!message.force);
             this.pumpSurface();
           }
@@ -308,11 +326,28 @@ export class ViewerSession {
       type: "overlay",
       volume: this.overlay?.info ?? null,
       activeId: this.activeId,
+      backgroundKind: this.image ? "image" : "mask",
+      backgroundId:
+        this.image === this.base
+          ? "reference"
+          : [...this.layers.values()].find(
+              (layer) => layer.volume === this.image,
+            )?.id,
       layers: [...this.layers.values()].map((layer) => ({
         id: layer.id,
         volume: layer.volume.info,
+        kind: layer.kind,
+        isReference: layer.volume === this.base,
       })),
     });
+  }
+
+  private selectLayer(layer: Layer): void {
+    this.activeId = layer.id;
+    if (layer.kind === "image") {
+      this.image = layer.volume;
+      this.overlay = undefined;
+    } else this.overlay = layer.volume;
   }
 
   private removeLayer(id?: string): void {
@@ -320,11 +355,17 @@ export class ViewerSession {
     if (!layer) return;
     this.stopSurface(layer);
     this.layers.delete(layer.id);
-    if (this.activeId === layer.id)
-      this.activeId = [...this.layers.keys()].at(-1);
-    this.overlay = this.activeId
-      ? this.layers.get(this.activeId)?.volume
-      : undefined;
+    if (this.image === layer.volume)
+      this.image =
+        this.sourceKind === "image"
+          ? this.base
+          : [...this.layers.values()].find((l) => l.kind === "image")?.volume;
+    if (this.overlay === layer.volume) this.overlay = undefined;
+    if (this.activeId === layer.id) {
+      const last = [...this.layers.values()].at(-1);
+      if (last) this.selectLayer(last);
+      else this.activeId = "reference";
+    }
     this.layerRevision++;
     this.postLayers();
     this.retire();
@@ -340,6 +381,7 @@ export class ViewerSession {
     if (!layer) {
       layer = {
         id: `mask-${++this.layerSerial}`,
+        kind: "mask",
         volume: this.base,
         sourcePath: this.source.path,
         key: "",
@@ -366,12 +408,26 @@ export class ViewerSession {
           let layer = [...this.layers.values()].find(
             (layer) => layer.sourcePath === item.path,
           );
+          if (!layer && item.path === this.source.path) {
+            await this.receive({ type: "selectOverlay", layerId: "reference" });
+            continue;
+          }
           if (!layer) {
             this.post({ type: "status", message: `正在读取 ${item.name}…` });
             const candidate = await this.load(item, this.base.info);
             if (this.closed || epoch !== this.overlayEpoch) break;
+            const classifying = candidate.classifySource(this.abort.signal);
+            this.classifyingLayers.set(candidate, classifying);
+            let kind: SourceKind;
+            try {
+              kind = await classifying;
+            } finally {
+              this.classifyingLayers.delete(candidate);
+            }
+            if (this.closed || epoch !== this.overlayEpoch) break;
             layer = {
               id: `mask-${++this.layerSerial}`,
+              kind,
               volume: candidate,
               sourcePath: item.path,
               key: "",
@@ -379,8 +435,7 @@ export class ViewerSession {
             };
             this.layers.set(layer.id, layer);
           }
-          this.activeId = layer.id;
-          this.overlay = layer.volume;
+          this.selectLayer(layer);
           this.layerRevision++;
           this.postLayers();
         } catch (error) {
@@ -528,10 +583,14 @@ export class ViewerSession {
         revision !== this.revisions[axis] ||
         layers !== this.layerRevision;
       try {
-        const base = await this.base!.slice(request, cancelled);
+        const image = this.image ?? this.base!;
+        const base = await image.slice(
+          { ...request, frame: image.info.frames === 1 ? 0 : request.frame },
+          cancelled,
+        );
         const layer = this.overlay;
         const overlay =
-          layer === this.base
+          layer === image
             ? base
             : base && layer
               ? await layer.slice(
@@ -561,6 +620,7 @@ export class ViewerSession {
     for (const v of this.volumes) {
       if (
         v !== this.base &&
+        !this.classifyingLayers.has(v) &&
         ![...this.layers.values()].some((layer) => layer.volume === v) &&
         ![...this.surfaceJobs.values()].some((job) => job.volume === v)
       ) {
@@ -581,6 +641,7 @@ export class ViewerSession {
     await Promise.allSettled([
       ...(this.draining ? [this.draining] : []),
       ...this.loads,
+      ...this.classifyingLayers.values(),
       ...(this.classifying ? [this.classifying] : []),
       ...[...this.surfaceJobs.values()].map((job) => job.done),
     ]);

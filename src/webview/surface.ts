@@ -8,6 +8,7 @@ import {
   DoubleSide,
   Group,
   Mesh,
+  Matrix4,
   MeshPhongMaterial,
   PerspectiveCamera,
   Scene,
@@ -17,17 +18,9 @@ import {
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { OverlayLayer, SurfaceMesh, SurfaceUpdate } from "../protocol";
+import { labelColor } from "./labelColors";
+import { icon } from "./icons";
 
-const palette = [
-  "#50bde9",
-  "#f5aa54",
-  "#a98cf5",
-  "#69d6a3",
-  "#f07fa4",
-  "#e0d465",
-  "#78a4f5",
-  "#db8e60",
-];
 type SurfaceObject = Mesh<BufferGeometry, MeshPhongMaterial>;
 interface LayerView {
   info: OverlayLayer;
@@ -35,13 +28,13 @@ interface LayerView {
   row: HTMLElement;
   status: HTMLElement;
   labels: HTMLElement;
-  legend: HTMLButtonElement;
-  displayName: string;
   visible: boolean;
   color: string;
+  colorMode: "auto" | "custom";
   opacity: number;
   wireframe: boolean;
   hiddenLabels: Set<number>;
+  selectedLabel?: number;
   revision: number;
   state: SurfaceUpdate["state"];
 }
@@ -68,7 +61,6 @@ export class SurfaceView {
   private scene = new Scene();
   private group = new Group();
   private layers = new Map<string, LayerView>();
-  private colorSerial = 0;
   private camera = new PerspectiveCamera(35, 1, 0.01, 10000);
   private controls?: OrbitControls;
   private observer: ResizeObserver;
@@ -76,20 +68,14 @@ export class SurfaceView {
   private center = new Vector3();
   private hasFramed = false;
   private message = document.getElementById("renderMessage")!;
-  private count = document.getElementById("renderCount")!;
-  private legend = document.getElementById("renderLegend")!;
-  private manager = document.getElementById(
-    "surfaceManager",
-  ) as HTMLDetailsElement;
   private list = document.getElementById("surfaceLayers")!;
   private reset = document.getElementById("resetSurface") as HTMLButtonElement;
-  private rebuild = document.getElementById(
-    "rebuildSurface",
-  ) as HTMLButtonElement;
 
   constructor(
     private viewport: HTMLElement,
     private post: (value: unknown) => void,
+    private displayChanged: () => void = () => {},
+    private locate: (layerId: string, voxel: number[]) => void = () => {},
   ) {
     this.scene.background = new Color("#08090b");
     this.scene.add(this.group, new AmbientLight(0xffffff, 1.1));
@@ -112,25 +98,38 @@ export class SurfaceView {
         this.clearLayer(layer);
         this.group.remove(layer.group);
         layer.row.remove();
-        layer.legend.remove();
         this.layers.delete(id);
       }
-    let added = false;
     for (const info of infos) {
       const existing = this.layers.get(info.id);
       if (existing) existing.info = info;
       else {
         this.layers.set(info.id, this.createLayer(info));
-        added = true;
       }
     }
-    this.manager.hidden = !this.layers.size;
-    if (added && this.layers.size > 1) this.manager.open = true;
-    document.getElementById("surfaceLayerCount")!.textContent =
-      `（${this.layers.size}）`;
-    this.rebuild.disabled = !this.layers.size;
+    this.list.hidden = !this.layers.size;
     if (!this.layers.size) this.hasFramed = false;
     this.refresh();
+  }
+
+  setActiveLayer(id: string | undefined) {
+    for (const [key, layer] of this.layers)
+      layer.row
+        .querySelector<HTMLButtonElement>(".surface-active")!
+        .setAttribute("aria-pressed", String(key === id));
+  }
+
+  displayStyle(
+    id: string | undefined,
+  ):
+    | Readonly<
+        Pick<
+          LayerView,
+          "visible" | "opacity" | "color" | "colorMode" | "hiddenLabels"
+        >
+      >
+    | undefined {
+    return id ? this.layers.get(id) : undefined;
   }
 
   update(id: string, revision: number, update: SurfaceUpdate) {
@@ -146,6 +145,9 @@ export class SurfaceView {
       layer.revision = revision;
       layer.state = update.state;
       layer.status.classList.toggle("error", update.state === "error");
+      layer.status.hidden = false;
+      layer.row.querySelector(".surface-label-count")!.textContent =
+        update.state === "ready" ? `· ${update.meshes.length} 标签` : "";
       if (update.state !== "ready") {
         layer.status.textContent = update.message;
         this.refresh();
@@ -158,8 +160,16 @@ export class SurfaceView {
       }
       this.initialize();
       update.meshes.forEach((mesh) => this.add(layer, mesh));
+      if (
+        !layer.group.children.some(
+          (object) => object.userData.label === layer.selectedLabel,
+        )
+      )
+        layer.selectedLabel = undefined;
+      this.updateSelection(layer);
       const triangles = this.triangleCount(layer);
-      layer.status.textContent = `${update.meshes.length} 标签 · ${triangles.toLocaleString()} 面`;
+      layer.status.hidden = true;
+      layer.status.textContent = `${triangles.toLocaleString()} 面`;
       this.updateBounds();
       if (!this.hasFramed) {
         this.home();
@@ -171,6 +181,7 @@ export class SurfaceView {
       this.clearLayer(layer);
       layer.state = "error";
       layer.status.classList.add("error");
+      layer.status.hidden = false;
       layer.status.textContent = `三维显示失败：${error instanceof Error ? error.message : String(error)}`;
       this.post({
         type: "surfaceClientError",
@@ -183,21 +194,23 @@ export class SurfaceView {
   }
 
   private createLayer(info: OverlayLayer): LayerView {
-    const row = document.createElement("section");
+    const row = document.createElement("details");
+    row.open = true;
     row.className = "surface-layer";
     row.dataset.layerId = info.id;
-    row.innerHTML = `<div class="surface-layer-controls"><label><input class="surface-visible" type="checkbox" checked>显示</label><input class="surface-name" type="text" aria-label="表面名称，例如 GT 或 Prediction"><input class="surface-color" type="color" aria-label="表面颜色"><label>不透明度 <input class="surface-opacity" type="range" min="0" max="1" step="0.05"><output></output></label><label><input class="surface-wireframe" type="checkbox">线框</label><button class="surface-rebuild">重新生成</button><button class="surface-remove">移除</button><span class="surface-layer-status"></span></div><div class="surface-labels" aria-label="独立标签显隐"></div>`;
-    const legend = document.createElement("button");
+    row.innerHTML = `<summary><span class="surface-file-info"><button class="icon-button surface-active" title="在二维查看此 Mask" aria-label="在二维查看此 Mask" aria-pressed="false">${icon("layers")}</button><span class="surface-filename"></span><span class="surface-label-count"></span></span><span class="surface-display-controls"><label class="surface-opacity-control">不透明度 <input class="surface-opacity" aria-label="Mask 不透明度" type="range" min="0" max="1" step="0.05"><output></output></label><button class="icon-button surface-visible" title="隐藏标签" aria-label="隐藏标签" aria-pressed="true">${icon("eye")}</button><button class="icon-button surface-locate" title="定位到选中标签" aria-label="定位到选中标签" disabled>${icon("locate-fixed")}</button><span class="surface-modes" role="group" aria-label="表面模式"><button class="icon-button surface-solid" title="实体表面" aria-label="实体表面" aria-pressed="true">${icon("box")}</button><button class="icon-button surface-wireframe" title="线框表面" aria-label="线框表面" aria-pressed="false">${icon("grid-3x3")}</button></span></span><span class="surface-summary-actions"><span class="surface-separator" aria-hidden="true"></span><button class="icon-button surface-rebuild" title="重新生成三维表面" aria-label="重新生成三维表面">${icon("refresh-cw")}</button><button class="icon-button surface-remove" title="移除 Mask" aria-label="移除 Mask">${icon("trash-2")}</button></span></summary><div class="surface-label-controls"><span class="surface-palette" title="Mask 标签配色" aria-hidden="true">${icon("palette")}</span><select class="surface-color-mode" aria-label="Mask 配色"><option value="auto">自动</option><option value="custom">统一颜色</option></select><input class="surface-color" type="color" aria-label="Mask 颜色" disabled hidden><span class="surface-separator" aria-hidden="true"></span><div class="surface-labels" aria-label="标签选择与显隐"></div><span class="surface-layer-status" role="status"></span></div>`;
+    row.querySelector(".surface-filename")!.textContent = info.volume.name;
+    row.querySelector<HTMLElement>(".surface-filename")!.title =
+      info.volume.name;
     const layer: LayerView = {
       info,
       row,
-      legend,
       group: new Group(),
       status: row.querySelector(".surface-layer-status")!,
       labels: row.querySelector(".surface-labels")!,
-      displayName: info.volume.name,
       visible: true,
-      color: palette[this.colorSerial++ % palette.length],
+      color: labelColor(1),
+      colorMode: "auto",
       opacity: 0.65,
       wireframe: false,
       hiddenLabels: new Set(),
@@ -207,36 +220,45 @@ export class SurfaceView {
     layer.status.textContent = "等待提取表面…";
     this.group.add(layer.group);
     this.list.append(row);
-    this.legend.append(legend);
-    const name = row.querySelector<HTMLInputElement>(".surface-name")!;
-    name.value = layer.displayName;
-    name.title = info.volume.name;
-    const updateLegend = () => {
-      legend.textContent = `● ${layer.displayName}`;
-      legend.title = `${layer.displayName}：点击显示或隐藏全部标签`;
-      legend.style.color = layer.color;
-      legend.setAttribute("aria-pressed", String(layer.visible));
+    const button = (selector: string, action: () => void) => {
+      const element = row.querySelector<HTMLButtonElement>(selector)!;
+      element.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        action();
+      };
+      return element;
     };
-    const visible = row.querySelector<HTMLInputElement>(".surface-visible")!;
-    const setVisible = (value: boolean) => {
-      layer.visible = value;
-      visible.checked = value;
-      layer.group.visible = value;
-      updateLegend();
+    button(".surface-active", () =>
+      this.post({ type: "selectOverlay", layerId: info.id }),
+    );
+    const visible = button(".surface-visible", () => {
+      layer.visible = !layer.visible;
+      layer.group.visible = layer.visible;
+      visible.innerHTML = icon(layer.visible ? "eye" : "eye-off");
+      visible.title = layer.visible ? "隐藏标签" : "显示标签";
+      visible.setAttribute("aria-label", visible.title);
+      visible.setAttribute("aria-pressed", String(layer.visible));
+      this.displayChanged();
       this.render();
-    };
-    visible.onchange = () => setVisible(visible.checked);
-    legend.onclick = () => setVisible(!layer.visible);
-    name.oninput = () => {
-      layer.displayName = name.value.trim() || info.volume.name;
-      updateLegend();
-    };
+    });
+    button(".surface-locate", () => this.locateLabel(layer));
     const color = row.querySelector<HTMLInputElement>(".surface-color")!;
     color.value = layer.color;
+    const mode = row.querySelector<HTMLSelectElement>(".surface-color-mode")!;
+    mode.onchange = () => {
+      layer.colorMode = mode.value === "custom" ? "custom" : "auto";
+      color.disabled = layer.colorMode === "auto";
+      color.hidden = layer.colorMode === "auto";
+      this.applyStyle(layer);
+    };
     color.oninput = () => {
+      layer.colorMode = "custom";
+      mode.value = "custom";
+      color.disabled = false;
+      color.hidden = false;
       layer.color = color.value;
       this.applyStyle(layer);
-      updateLegend();
     };
     const opacity = row.querySelector<HTMLInputElement>(".surface-opacity")!;
     const output = row.querySelector("output")!;
@@ -247,15 +269,22 @@ export class SurfaceView {
       output.textContent = `${Math.round(layer.opacity * 100)}%`;
       this.applyStyle(layer);
     };
-    const wireframe =
-      row.querySelector<HTMLInputElement>(".surface-wireframe")!;
-    wireframe.onchange = () => {
-      layer.wireframe = wireframe.checked;
+    const setMode = (wireframe: boolean) => {
+      layer.wireframe = wireframe;
+      row
+        .querySelector(".surface-solid")!
+        .setAttribute("aria-pressed", String(!wireframe));
+      row
+        .querySelector(".surface-wireframe")!
+        .setAttribute("aria-pressed", String(wireframe));
       this.applyStyle(layer);
     };
-    row.querySelector<HTMLButtonElement>(".surface-remove")!.onclick = () =>
-      this.post({ type: "removeOverlay", layerId: info.id });
-    row.querySelector<HTMLButtonElement>(".surface-rebuild")!.onclick = () =>
+    button(".surface-solid", () => setMode(false));
+    button(".surface-wireframe", () => setMode(true));
+    button(".surface-remove", () =>
+      this.post({ type: "removeOverlay", layerId: info.id }),
+    );
+    button(".surface-rebuild", () =>
       this.post({
         type: "surface",
         layerId: info.id,
@@ -263,8 +292,8 @@ export class SurfaceView {
           (document.getElementById("frame") as HTMLInputElement).value,
         ),
         force: true,
-      });
-    updateLegend();
+      }),
+    );
     return layer;
   }
 
@@ -284,7 +313,7 @@ export class SurfaceView {
     geometry.setIndex(new BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     const material = new MeshPhongMaterial({
-      color: layer.color,
+      color: layer.colorMode === "auto" ? labelColor(data.label) : layer.color,
       side: DoubleSide,
       shininess: 35,
       opacity: layer.opacity,
@@ -296,29 +325,145 @@ export class SurfaceView {
     mesh.userData.label = data.label;
     mesh.visible = !layer.hiddenLabels.has(data.label);
     layer.group.add(mesh);
+    const pill = document.createElement("span");
+    pill.className = "surface-label-pill";
+    pill.dataset.label = String(data.label);
+    pill.style.color =
+      layer.colorMode === "auto" ? labelColor(data.label) : layer.color;
+    const select = document.createElement("button");
+    select.className = "surface-label-select";
+    select.innerHTML = `<span class="surface-label-dot" aria-hidden="true">●</span> ${data.label}`;
+    select.title = `选中标签 ${data.label}；双击定位`;
+    select.setAttribute("aria-label", `选中标签 ${data.label}`);
+    select.onclick = () => {
+      layer.selectedLabel = data.label;
+      this.updateSelection(layer);
+      if (
+        layer.row
+          .querySelector(".surface-active")!
+          .getAttribute("aria-pressed") !== "true"
+      )
+        this.post({ type: "selectOverlay", layerId: layer.info.id });
+    };
+    select.ondblclick = () => this.locateLabel(layer);
     const toggle = document.createElement("button");
-    toggle.textContent = `标签 ${data.label}`;
-    toggle.setAttribute("aria-pressed", String(mesh.visible));
+    toggle.className = "surface-label-toggle";
+    const updateToggle = () => {
+      toggle.innerHTML = icon(mesh.visible ? "eye" : "eye-off");
+      toggle.title = `${mesh.visible ? "隐藏" : "显示"}标签 ${data.label}`;
+      toggle.setAttribute("aria-label", toggle.title);
+      toggle.setAttribute("aria-pressed", String(mesh.visible));
+      pill.dataset.visible = String(mesh.visible);
+    };
     toggle.onclick = () => {
       mesh.visible = !mesh.visible;
       if (mesh.visible) layer.hiddenLabels.delete(data.label);
       else layer.hiddenLabels.add(data.label);
-      toggle.setAttribute("aria-pressed", String(mesh.visible));
+      updateToggle();
+      this.displayChanged();
       this.render();
     };
-    layer.labels.append(toggle);
+    updateToggle();
+    pill.append(select, toggle);
+    layer.labels.append(pill);
+  }
+
+  private updateSelection(layer: LayerView) {
+    for (const pill of layer.labels.querySelectorAll<HTMLElement>(
+      ".surface-label-pill",
+    )) {
+      const selected = Number(pill.dataset.label) === layer.selectedLabel;
+      pill.dataset.selected = String(selected);
+      pill
+        .querySelector(".surface-label-select")!
+        .setAttribute("aria-pressed", String(selected));
+    }
+    layer.row.querySelector<HTMLButtonElement>(".surface-locate")!.disabled =
+      !this.labelLocation(layer);
+  }
+
+  private labelLocation(layer: LayerView) {
+    if (layer.state !== "ready" || layer.selectedLabel === undefined) return;
+    const object = layer.group.children.find(
+      (mesh) => mesh.userData.label === layer.selectedLabel,
+    );
+    const a = layer.info.volume.affine;
+    if (!object || a.length !== 12 || !a.every(Number.isFinite)) return;
+    const transform = new Matrix4().set(
+      a[0],
+      a[1],
+      a[2],
+      a[3],
+      a[4],
+      a[5],
+      a[6],
+      a[7],
+      a[8],
+      a[9],
+      a[10],
+      a[11],
+      0,
+      0,
+      0,
+      1,
+    );
+    const determinant = transform.determinant();
+    if (!Number.isFinite(determinant) || determinant === 0) return;
+    // Mesh vertices already carry the reference affine from surface extraction.
+    // Invert that same Mask affine for slice indices; world xyz is never used
+    // directly as voxel indices (also valid for oblique and sheared volumes).
+    const box = new Box3().setFromObject(object);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new Vector3());
+    const voxel = center.clone().applyMatrix4(transform.invert());
+    if (![...center.toArray(), ...voxel.toArray()].every(Number.isFinite))
+      return;
+    return {
+      center,
+      voxel,
+      radius: Math.max(box.getSize(new Vector3()).length() / 2, 0.001),
+    };
+  }
+
+  private locateLabel(layer: LayerView) {
+    const location = this.labelLocation(layer);
+    if (!location) return;
+    this.locate(layer.info.id, location.voxel.toArray());
+    if (!this.renderer || !this.controls) return;
+    const distance = this.frameCamera(
+      this.camera,
+      location.center,
+      location.radius,
+    );
+    this.controls.target.copy(location.center);
+    this.controls.minDistance = location.radius / 10;
+    this.controls.maxDistance = distance * 10;
+    this.controls.update();
+    this.render();
   }
 
   private applyStyle(layer: LayerView) {
     for (const object of layer.group.children) {
       const material = (object as SurfaceObject).material;
-      material.color.set(layer.color);
+      material.color.set(
+        layer.colorMode === "auto"
+          ? labelColor(object.userData.label)
+          : layer.color,
+      );
       material.opacity = layer.opacity;
       material.transparent = layer.opacity < 1;
       material.depthWrite = layer.opacity === 1;
       material.wireframe = layer.wireframe;
       material.needsUpdate = true;
     }
+    for (const pill of layer.labels.querySelectorAll<HTMLElement>(
+      ".surface-label-pill",
+    ))
+      pill.style.color =
+        layer.colorMode === "auto"
+          ? labelColor(Number(pill.dataset.label))
+          : layer.color;
+    this.displayChanged();
     this.render();
   }
   private triangleCount(layer: LayerView) {
@@ -341,7 +486,6 @@ export class SurfaceView {
       (n, layer) => n + this.triangleCount(layer),
       0,
     );
-    this.count.textContent = `${files.length} 份 · ${triangles.toLocaleString()} 面`;
     this.reset.disabled = !triangles;
     this.message.hidden = !!triangles;
     if (!triangles)
@@ -350,8 +494,8 @@ export class SurfaceView {
         : files.some(
               (layer) => layer.state === "loading" || layer.state === "idle",
             )
-          ? "正在提取表面，可展开上方“表面标签”查看进度"
-          : "没有可显示的表面，请展开“表面标签”查看详情";
+          ? "正在提取表面，可展开上方 Mask 模块查看进度"
+          : "没有可显示的表面，请展开 Mask 模块查看详情";
     this.render();
   }
 
@@ -498,6 +642,7 @@ export class SurfaceView {
       layer.group.remove(mesh);
     }
     layer.labels.replaceChildren();
+    this.updateSelection(layer);
   }
   private dispose() {
     this.observer.disconnect();

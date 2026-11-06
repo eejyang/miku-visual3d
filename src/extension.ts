@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { icon } from "./webview/icons";
 import { randomBytes } from "node:crypto";
 import {
   ViewerSession,
@@ -8,6 +9,8 @@ import {
 
 const VIEW = "mikuVisual.image";
 const sessions = new Map<string, ViewerSession>();
+const viewerPanels = new Map<string, vscode.WebviewPanel>();
+let lastActiveViewer: string | undefined;
 
 function source(uri: vscode.Uri): Source {
   if (uri.scheme !== "file" && uri.scheme !== "vscode-remote")
@@ -16,6 +19,13 @@ function source(uri: vscode.Uri): Source {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const updateAddImageContext = () =>
+    vscode.commands.executeCommand(
+      "setContext",
+      "mikuVisual.hasOpenImage",
+      [...sessions.values()].some((session) => session.diagnostics.loaded),
+    );
+  void updateAddImageContext();
   const output = vscode.window.createOutputChannel("miku visual");
   context.subscriptions.push(output);
   const log = (message: string) =>
@@ -49,27 +59,45 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "mikuVisual.addOverlay",
-      async (uris?: vscode.Uri | vscode.Uri[]) => {
+      async (uris?: vscode.Uri | vscode.Uri[], selectedUris?: vscode.Uri[]) => {
         const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-        if (
-          !(input instanceof vscode.TabInputCustom) ||
-          input.viewType !== VIEW
-        ) {
+        const activeKey =
+          input instanceof vscode.TabInputCustom && input.viewType === VIEW
+            ? input.uri.toString()
+            : undefined;
+        const key = [
+          activeKey,
+          lastActiveViewer,
+          ...[...sessions.keys()].reverse(),
+        ].find(
+          (candidate) =>
+            candidate !== undefined &&
+            sessions.get(candidate)?.diagnostics.loaded,
+        );
+        const session = key ? sessions.get(key) : undefined;
+        const panel = key ? viewerPanels.get(key) : undefined;
+        if (!key || !session || !panel) {
           void vscode.window.showInformationMessage(
-            "请先用 miku visual 打开底图。",
+            "请先用 miku visual 打开影像。",
           );
           return;
         }
-        const picked = uris ? (Array.isArray(uris) ? uris : [uris]) : undefined;
+        const target = vscode.Uri.parse(key);
+        const picked = selectedUris?.length
+          ? selectedUris
+          : uris
+            ? Array.isArray(uris)
+              ? uris
+              : [uris]
+            : undefined;
         for (const uri of picked ?? [])
           if (
-            uri.scheme !== input.uri.scheme ||
-            uri.authority !== input.uri.authority
+            uri.scheme !== target.scheme ||
+            uri.authority !== target.authority
           )
-            throw new Error("叠加影像必须位于底图所在的工作区主机。");
-        await sessions
-          .get(input.uri.toString())
-          ?.addOverlay(picked?.map(source));
+            throw new Error("添加的影像必须位于同一工作区主机。");
+        panel.reveal(panel.viewColumn);
+        await session.addOverlay(picked?.map(source));
       },
     ),
   );
@@ -102,6 +130,10 @@ export function activate(context: vscode.ExtensionContext) {
           try {
             session = new ViewerSession(source(document.uri), {
               post: (message) => {
+                if (message.type === "volume") {
+                  if (panel.active) lastActiveViewer = key;
+                  void updateAddImageContext();
+                }
                 void panel.webview.postMessage(message).then((sent) => {
                   if (!sent) log(`Message not delivered: ${message.type}`);
                 });
@@ -112,7 +144,7 @@ export function activate(context: vscode.ExtensionContext) {
                     canSelectMany: true,
                     defaultUri: document.uri,
                     filters: { NIfTI: ["nii", "gz"] },
-                    openLabel: "Add overlay",
+                    openLabel: "加载影像",
                   })) || [];
                 if (!picked.length) return;
                 for (const uri of picked)
@@ -130,10 +162,16 @@ export function activate(context: vscode.ExtensionContext) {
             return;
           }
           sessions.set(key, session);
+          viewerPanels.set(key, panel);
+          const viewState = panel.onDidChangeViewState(() => {
+            if (panel.active) lastActiveViewer = key;
+          });
+          if (panel.active) lastActiveViewer = key;
           const receive = panel.webview.onDidReceiveMessage((message) => {
-            if (message?.type === "openImage")
-              void vscode.commands.executeCommand("mikuVisual.open");
-            else void session.receive(message);
+            if (message?.type === "openImage") {
+              if (session.diagnostics.loaded) void session.addOverlay();
+              else void vscode.commands.executeCommand("mikuVisual.open");
+            } else void session.receive(message);
           });
           const timer = setTimeout(() => {
             if (!session.diagnostics.ready) {
@@ -146,7 +184,13 @@ export function activate(context: vscode.ExtensionContext) {
           panel.onDidDispose(() => {
             clearTimeout(timer);
             receive.dispose();
-            if (sessions.get(key) === session) sessions.delete(key);
+            viewState.dispose();
+            if (sessions.get(key) === session) {
+              sessions.delete(key);
+              viewerPanels.delete(key);
+              if (lastActiveViewer === key) lastActiveViewer = undefined;
+            }
+            void updateAddImageContext();
             void session
               .dispose()
               .catch((error) => log(`Dispose: ${String(error)}`));
@@ -156,13 +200,19 @@ export function activate(context: vscode.ExtensionContext) {
           panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${style}"><title>miku visual</title></head><body>
-<div id="app"><header><span class="brand"><img class="brand-mark" src="${brand}" width="24" height="24" alt="">miku visual<small>医学影像</small></span><h1 id="title">正在打开影像</h1><p id="details">二维切片 · mask 三维表面</p></header>
-<div id="toolbar">
-<div class="toolbar-row" id="fileControls" role="group" aria-label="影像与叠加控制"><div class="toolbar-actions"><button id="loadImage">加载影像</button><button id="addOverlay" disabled>添加叠加</button><button id="removeOverlay" disabled>移除当前</button></div><label id="overlaySelector" hidden>二维叠加 <select id="activeOverlay" aria-label="选择二维叠加影像"></select></label><label>透明度 <input id="opacity" type="range" min="0" max="1" step="0.01" value="0.5" disabled></label><span id="overlayName"></span></div>
-<div class="toolbar-row" id="displayControls" role="group" aria-label="视图与调窗控制" hidden><label>视图 <select id="viewLayout" aria-label="视图布局"><option value="quad">四窗</option><option value="slices">三切面</option><optgroup label="单窗"><option value="axial">轴位</option><option value="sagittal">矢状位</option><option value="coronal">冠状位</option><option value="render">三维表面</option></optgroup></select></label><label id="windowPresetLabel">调窗预设 <select id="windowPreset" title="CT 预设按 HU 应用；MRI 或其他强度数据请使用自动范围或自定义"><option value="auto">自动范围</option><option value="custom">自定义</option></select></label><label id="levelLabel">窗位 <input id="level" type="number" step="any" value="0"></label><label id="windowLabel">窗宽 <input id="window" type="number" min="0.00001" step="any" value="1"></label><label id="frameLabel" hidden>帧 <input id="frame" type="range" min="0" value="0"><span id="frameValue"></span></label></div>
+<div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">正在打开影像</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
+<div id="toolbar" role="toolbar" aria-label="影像显示工具">
+<button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>
+<label class="icon-select" title="视窗布局">${icon("layout")}<select id="viewLayout" aria-label="视窗布局" disabled><option value="quad">四窗</option><option value="slices">三切面</option><optgroup label="单窗"><option value="axial">轴位</option><option value="sagittal">矢状位</option><option value="coronal">冠状位</option><option value="render">三维表面</option></optgroup></select></label>
+<button class="icon-button" id="toggleCrosshair" title="显示 / 隐藏十字线" aria-label="显示 / 隐藏十字线" aria-pressed="true" disabled>${icon("crosshair")}</button>
+<span class="toolbar-separator" aria-hidden="true"></span>
+<label class="toolbar-menu" id="colormapLabel" title="影像颜色映射">${icon("palette")}<select id="colormap" aria-label="影像颜色映射" disabled><option value="gray">Gray</option><option value="viridis">Viridis</option><option value="magma">Magma</option><option value="hot">Hot</option></select></label>
+<label class="toolbar-menu" id="windowPresetLabel" title="窗宽窗位预设">${icon("contrast")}<select id="windowPreset" aria-label="调窗预设" title="CT 预设按 HU 应用；MRI 或其他强度数据请使用自动范围或自定义" disabled><option value="auto">自动范围</option><option value="custom">自定义</option></select></label><label id="levelLabel">WL <input id="level" aria-label="窗位 WL" type="number" step="any" value="0" disabled></label><label id="windowLabel">WW <input id="window" aria-label="窗宽 WW" type="number" min="0.00001" step="any" value="1" disabled></label>
+<label id="frameLabel" hidden>帧 <input id="frame" type="range" min="0" value="0"><span id="frameValue"></span></label>
+<button class="icon-button" id="resetDisplay" title="重置影像显示" aria-label="重置影像显示" disabled>${icon("rotate-ccw")}</button>
 </div>
-<details id="surfaceManager" hidden><summary>表面标签 <span id="surfaceLayerCount"></span></summary><div id="surfaceLayers"></div></details>
-<main id="panels" hidden data-layout="quad" aria-label="四窗影像视图"><section id="renderPanel" data-view="render" class="plane render-panel" aria-labelledby="renderTitle"><div class="plane-title"><div class="plane-heading"><h2 id="renderTitle">三维表面</h2><span class="plane-english">3D Surface</span><span id="renderCount" class="count"></span></div><div class="render-actions"><button id="resetSurface" disabled title="恢复初始视角">复位</button><button id="rebuildSurface" disabled>重新生成</button></div></div><div id="renderViewport" class="viewport"><p id="renderMessage" class="render-message">添加标签 mask 后显示三维表面</p><div id="renderLegend" aria-label="mask 标签" class="render-legend"></div><span class="render-hint">左键旋转 · 右键平移 · 滚轮缩放</span></div></section></main><div id="startup">正在启动查看器…</div><footer><span id="status" role="status" aria-live="polite">正在加载界面脚本…</span><span>滚轮切片 · 右键拖动调窗 · 点击联动定位</span></footer></div>
+<div id="surfaceLayers" aria-label="Mask 管理" hidden></div>
+<main id="panels" hidden data-layout="quad" aria-label="四窗影像视图"><section id="renderPanel" data-view="render" class="plane render-panel" aria-labelledby="renderTitle"><div class="plane-title"><div class="plane-heading"><h2 id="renderTitle">三维表面</h2><span class="plane-english">3D Surface</span></div><div class="render-actions"><button id="resetSurface" disabled title="恢复初始视角">复位</button></div></div><div id="renderViewport" class="viewport"><p id="renderMessage" class="render-message">添加标签 mask 后显示三维表面</p><span class="render-hint">左键旋转 · 右键平移 · 滚轮缩放</span></div></section></main><div id="startup">正在启动查看器…</div><footer><span id="status" role="status" aria-live="polite">正在加载界面脚本…</span><span>滚轮切片 · 右键拖动调窗 · 点击联动定位</span></footer></div>
 <script nonce="${nonce}" src="${script}" defer></script></body></html>`;
         },
       },
@@ -188,4 +238,11 @@ export function activate(context: vscode.ExtensionContext) {
 export async function deactivate() {
   await Promise.allSettled([...sessions.values()].map((s) => s.dispose()));
   sessions.clear();
+  viewerPanels.clear();
+  lastActiveViewer = undefined;
+  await vscode.commands.executeCommand(
+    "setContext",
+    "mikuVisual.hasOpenImage",
+    false,
+  );
 }

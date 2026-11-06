@@ -39,7 +39,8 @@
       },
       {
         "command": "mikuVisual.addOverlay",
-        "title": "miku visual: Add Overlay"
+        "title": "MikuVisual: Add Image",
+        "enablement": "mikuVisual.hasOpenImage"
       }
     ],
     "customEditors": [
@@ -60,9 +61,9 @@
     "menus": {
       "explorer/context": [
         {
-          "command": "mikuVisual.open",
-          "when": "resourceFilename =~ /\\.nii(\\.gz)?$/i",
-          "group": "navigation"
+          "command": "mikuVisual.addOverlay",
+          "when": "mikuVisual.hasOpenImage && resourceFilename =~ /\\.nii(\\.gz)?$/i",
+          "group": "zzzz_mikuVisual@1000"
         }
       ]
     }
