@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { Window } from "happy-dom";
 import type { HostMessage, VolumeInfo } from "../src/protocol";
 import { icon } from "../src/webview/icons";
+import { labelRgb } from "../src/webview/labelColors";
 let script: string, html: string;
 const windows: Window[] = [];
 beforeAll(async () => {
@@ -120,6 +121,92 @@ const reference: VolumeInfo = {
   hasOrientation: true,
   spatialUnits: 2,
 };
+it("transposes and reflects real slice pixels, Mask pixels, crosshairs and linked click positions together", () => {
+  const { window, doc, sent, post, paint, contexts } = launch();
+  const image: VolumeInfo = {
+    ...reference,
+    dimensions: [4, 3, 2],
+    spacing: [4, 3, 2],
+    // Voxel axes are S, P, R, with a nonzero world origin.
+    affine: [0, 0, 2, 10, 0, -3, 0, 20, 4, 0, 0, 30],
+  };
+  post({ type: "volume", volume: image, sourceKind: "image" });
+  paint();
+  const plane = doc.querySelector<any>('[data-view="axial"]')!;
+  expect(plane.dataset.axis).toBe("0");
+  expect(
+    ["left", "right", "top", "bottom"].map(
+      (side) => plane.querySelector(`.${side}`).textContent,
+    ),
+  ).toEqual(["R", "L", "A", "P"]);
+  const canvas = plane.querySelector("canvas");
+  const requestSlice = () => {
+    plane.querySelector(".slice").dispatchEvent(new window.Event("input"));
+    return sent.filter((m) => m.type === "slice" && m.request.axis === 0).at(-1)
+      .request;
+  };
+  const pixels = (values: number[]) => ({
+    width: 3,
+    height: 2,
+    pixels: Buffer.from(new Float32Array(values).buffer).toString("base64"),
+    min: 0,
+    max: 100,
+  });
+  post({
+    type: "slice",
+    request: requestSlice(),
+    base: pixels([0, 20, 40, 60, 80, 100]),
+  });
+  expect([canvas.width, canvas.height]).toEqual([2, 3]);
+  expect([...contexts.get(canvas).data].filter((_, i) => i % 4 === 0)).toEqual([
+    153, 0, 204, 51, 255, 102,
+  ]);
+  post({
+    type: "slice",
+    request: requestSlice(),
+    base: pixels([0, 20, 40, 60, 80, 100]),
+    overlay: pixels([0, 1, 0, 2, 0, 0]),
+  });
+  const rgba = contexts.get(canvas).data;
+  const mixed = (gray: number, label: number) =>
+    labelRgb(label).map((n) => Math.round(gray * 0.35 + n * 0.65));
+  expect([...rgba.slice(0, 3)]).toEqual(mixed(153, 2));
+  expect([...rgba.slice(12, 15)]).toEqual(mixed(51, 1));
+  expect([...rgba.slice(4, 7)]).toEqual([0, 0, 0]);
+  const viewport = plane.querySelector(".viewport");
+  Object.defineProperties(viewport, {
+    clientWidth: { value: 400 },
+    clientHeight: { value: 500 },
+  });
+  canvas.getBoundingClientRect = () => ({
+    left: 10,
+    top: 20,
+    width: 200,
+    height: 300,
+  });
+  const before = sent.length;
+  canvas.dispatchEvent(
+    new window.PointerEvent("pointerdown", {
+      button: 0,
+      clientX: 60,
+      clientY: 70,
+    }),
+  );
+  expect(
+    sent
+      .slice(before)
+      .filter((m) => m.type === "slice")
+      .map((m) => [m.request.axis, m.request.index]),
+  ).toEqual([
+    [2, 1],
+    [1, 0],
+  ]);
+  const crosshair = plane.querySelector(".crosshair");
+  expect(crosshair.style.getPropertyValue("--crosshair-x")).toBe("150px");
+  expect(crosshair.style.getPropertyValue("--crosshair-y")).toBe("99px");
+  expect(sent.filter((m) => m.type === "clientError")).toEqual([]);
+});
+
 it("keeps one loader, a main-image header and independent Mask modules", () => {
   const { doc, sent, post, paint, contexts } = launch();
   expect(doc.getElementById("addOverlay")).toBeNull();
@@ -172,8 +259,8 @@ it("keeps one loader, a main-image header and independent Mask modules", () => {
   )!;
   opacity.value = "0.5";
   opacity.dispatchEvent(new doc.defaultView!.Event("input"));
-  expect([...contexts.get(canvas).data.slice(8, 11)]).toEqual([128, 128, 128]);
-  expect([...contexts.get(canvas).data.slice(12, 15)]).toEqual([104, 158, 180]);
+  expect([...contexts.get(canvas).data.slice(12, 15)]).toEqual([128, 128, 128]);
+  expect([...contexts.get(canvas).data.slice(8, 11)]).toEqual([104, 158, 180]);
   doc.querySelector<any>('[data-layer-id="mask-1"] .surface-active')!.click();
   expect(sent.at(-1)).toEqual({ type: "selectOverlay", layerId: "mask-1" });
   doc.querySelector<any>('[data-layer-id="mask-2"] .surface-remove')!.click();
@@ -254,23 +341,23 @@ it("maps only main-image colors and shares Mask visibility, opacity and custom c
     element.dispatchEvent(new window.Event(event));
   };
   input(".surface-opacity", "1");
-  const mask = pixel(12);
-  const gray = pixel(8);
+  const mask = pixel(8);
+  const gray = pixel(12);
   const requests = sent.length;
   for (const name of ["viridis", "magma", "hot"]) {
     input("#colormap", name, "change");
-    expect(pixel(8)).not.toEqual(gray);
-    expect(pixel(12)).toEqual(mask);
+    expect(pixel(12)).not.toEqual(gray);
+    expect(pixel(8)).toEqual(mask);
   }
   input(".surface-color", "#ff0000");
-  expect(pixel(12)).toEqual([255, 0, 0]);
+  expect(pixel(8)).toEqual([255, 0, 0]);
   input(".surface-opacity", "0");
-  expect(pixel(12)).toEqual(pixel(8));
+  expect(pixel(8)).toEqual(pixel(12));
   input(".surface-opacity", "1");
   input(".surface-visible", false, "change");
-  expect(pixel(12)).toEqual(pixel(8));
+  expect(pixel(8)).toEqual(pixel(12));
   input(".surface-visible", true, "change");
-  expect(pixel(12)).toEqual([255, 0, 0]);
+  expect(pixel(8)).toEqual([255, 0, 0]);
   expect(sent.length).toBe(requests);
 });
 

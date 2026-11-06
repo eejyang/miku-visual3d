@@ -10,7 +10,10 @@ import type {
 import {
   SLICE_AXES,
   describePlanes,
-  directionLabel,
+  displayDirections,
+  voxelToScreen,
+  screenToVoxel,
+  type PlaneDisplay,
   type PlaneDescription,
 } from "./orientation";
 import { SurfaceView } from "./surface";
@@ -57,6 +60,7 @@ window.addEventListener("unhandledrejection", (e) => report(e.reason));
 
 interface Plane {
   axis: Axis;
+  display: PlaneDisplay;
   canvas: HTMLCanvasElement;
   viewport: HTMLElement;
   crosshair: HTMLElement;
@@ -72,7 +76,6 @@ interface Plane {
   acknowledged?: number;
 }
 const planes: Plane[] = [];
-const uv = SLICE_AXES;
 let volume: VolumeInfo | undefined;
 let indices = [0, 0, 0];
 let serial = 0;
@@ -151,7 +154,7 @@ function setSourceKind(kind: SourceKind) {
 }
 function fit(plane: Plane) {
   if (!volume) return;
-  const [u, v] = uv[plane.axis];
+  const { u, v } = plane.display;
   const ratio =
     (volume.dimensions[u] * volume.spacing[u]) /
     (volume.dimensions[v] * volume.spacing[v]);
@@ -163,12 +166,13 @@ function fit(plane: Plane) {
   plane.canvas.style.height = `${height}px`;
   // Locate the voxel center within the fitted image, then extend the guides
   // across the viewport in CSS pixels, independently of the image resolution.
-  const x =
-    (plane.viewport.clientWidth - width) / 2 +
-    ((indices[u] + 0.5) / volume.dimensions[u]) * width;
-  const y =
-    (plane.viewport.clientHeight - height) / 2 +
-    (1 - (indices[v] + 0.5) / volume.dimensions[v]) * height;
+  const [screenX, screenY] = voxelToScreen(
+    plane.display,
+    volume.dimensions,
+    indices,
+  );
+  const x = (plane.viewport.clientWidth - width) / 2 + screenX * width;
+  const y = (plane.viewport.clientHeight - height) / 2 + screenY * height;
   plane.crosshair.style.setProperty("--crosshair-x", `${Math.round(x)}px`);
   plane.crosshair.style.setProperty("--crosshair-y", `${Math.round(y)}px`);
   plane.crosshair.hidden = !showCrosshair || !plane.current;
@@ -176,9 +180,13 @@ function fit(plane: Plane) {
 function draw(plane: Plane) {
   if (!plane.current || !volume) return;
   const { base } = plane.current;
-  plane.canvas.width = base.width;
-  plane.canvas.height = base.height;
-  const image = plane.context.createImageData(base.width, base.height);
+  const { display } = plane;
+  const transpose = display.u !== SLICE_AXES[plane.axis][0];
+  const pixelWidth = transpose ? base.height : base.width;
+  const pixelHeight = transpose ? base.width : base.height;
+  plane.canvas.width = pixelWidth;
+  plane.canvas.height = pixelHeight;
+  const image = plane.context.createImageData(pixelWidth, pixelHeight);
   const width = Math.max(1e-5, Number(windowWidth.value) || 1);
   const low = (Number(level.value) || 0) - width / 2;
   const style = surface.displayStyle(activeMaskId);
@@ -196,8 +204,12 @@ function draw(plane: Plane) {
   let visiblePixels = 0;
   for (let y = 0; y < base.height; y++)
     for (let x = 0; x < base.width; x++) {
-      const source = y * base.width + x,
-        p = ((base.height - y - 1) * base.width + x) * 4;
+      const source = y * base.width + x;
+      let screenX = transpose ? y : x;
+      let screenY = transpose ? x : y;
+      if (display.flipU) screenX = pixelWidth - 1 - screenX;
+      if (display.flipV) screenY = pixelHeight - 1 - screenY;
+      const p = ((pixelHeight - screenY - 1) * pixelWidth + screenX) * 4;
       const value = plane.base[source],
         o = plane.overlay[source];
       const gray =
@@ -227,8 +239,8 @@ function draw(plane: Plane) {
     const readback = plane.context.getImageData(
       0,
       0,
-      base.width,
-      base.height,
+      pixelWidth,
+      pixelHeight,
     ).data;
     let nonblack = 0;
     for (let p = 0; p < readback.length; p += 4)
@@ -238,8 +250,8 @@ function draw(plane: Plane) {
       type: "painted",
       id: plane.current.request.id,
       axis: plane.axis,
-      width: base.width,
-      height: base.height,
+      width: pixelWidth,
+      height: pixelHeight,
       visiblePixels: nonblack,
     });
     plane.acknowledged = plane.current.request.id;
@@ -306,7 +318,7 @@ function autoWindow() {
   drawAll();
 }
 function createPlane(description: PlaneDescription): Plane {
-  const { axis, view, title, english, note } = description;
+  const { axis, view, title, english, note, display } = description;
   const option = viewLayout.querySelector<HTMLOptionElement>(
     `option[value="${view}"]`,
   )!;
@@ -322,6 +334,7 @@ function createPlane(description: PlaneDescription): Plane {
   if (!context) throw new Error("无法创建 Canvas2D 显示上下文。");
   const plane: Plane = {
     axis,
+    display,
     canvas,
     context,
     viewport: section.querySelector(".viewport")!,
@@ -333,18 +346,11 @@ function createPlane(description: PlaneDescription): Plane {
     overlay: new Float32Array(0),
   };
   plane.slider.max = String(volume!.dimensions[axis] - 1);
-  const [u, v] = uv[axis];
-  for (const [label, column, sign] of [
-    ["left", u, -1],
-    ["right", u, 1],
-    ["bottom", v, -1],
-    ["top", v, 1],
-  ] as const)
-    section.querySelector(`.${label}`)!.textContent = directionLabel(
-      volume!,
-      column,
-      sign,
-    );
+  const { u, v } = display;
+  for (const [side, label] of Object.entries(
+    displayDirections(volume!, display),
+  ))
+    section.querySelector(`.${side}`)!.textContent = label;
   plane.slider.oninput = () => {
     indices[axis] = Number(plane.slider.value);
     request(plane);
@@ -379,25 +385,11 @@ function createPlane(description: PlaneDescription): Plane {
       canvas.setPointerCapture(e.pointerId);
     } else if (e.button === 0) {
       const rect = canvas.getBoundingClientRect();
-      indices[u] = Math.max(
-        0,
-        Math.min(
-          volume!.dimensions[u] - 1,
-          Math.floor(
-            ((e.clientX - rect.left) / rect.width) * volume!.dimensions[u],
-          ),
-        ),
-      );
-      indices[v] = Math.max(
-        0,
-        Math.min(
-          volume!.dimensions[v] - 1,
-          volume!.dimensions[v] -
-            1 -
-            Math.floor(
-              ((e.clientY - rect.top) / rect.height) * volume!.dimensions[v],
-            ),
-        ),
+      [indices[u], indices[v]] = screenToVoxel(
+        display,
+        volume!.dimensions,
+        (e.clientX - rect.left) / rect.width,
+        (e.clientY - rect.top) / rect.height,
       );
       planes.filter((p) => p.axis !== axis).forEach(request);
       drawAll();

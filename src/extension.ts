@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext) {
       [...sessions.values()].some((session) => session.diagnostics.loaded),
     );
   void updateAddImageContext();
-  const output = vscode.window.createOutputChannel("miku visual");
+  const output = vscode.window.createOutputChannel("Miku Visual3D");
   context.subscriptions.push(output);
   const log = (message: string) =>
     output.appendLine(`[${new Date().toISOString()}] ${message}`);
@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.commands.executeCommand("vscode.openWith", uri, VIEW);
         } catch (error) {
           log(String(error));
-          void vscode.window.showErrorMessage(`miku visual: ${String(error)}`);
+          void vscode.window.showErrorMessage(`Miku Visual3D: ${String(error)}`);
         }
       },
     ),
@@ -78,7 +78,7 @@ export function activate(context: vscode.ExtensionContext) {
         const panel = key ? viewerPanels.get(key) : undefined;
         if (!key || !session || !panel) {
           void vscode.window.showInformationMessage(
-            "请先用 miku visual 打开影像。",
+            "请先用 Miku Visual3D 打开影像。",
           );
           return;
         }
@@ -177,7 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!session.diagnostics.ready) {
               log("Webview did not start within 15 seconds");
               void vscode.window.showErrorMessage(
-                "miku visual 界面未能启动。请运行 miku visual: Show Logs 查看原因。",
+                "Miku Visual3D 界面未能启动。请运行 MikuVisual: Show Logs 查看原因。",
               );
             }
           }, 15000);
@@ -199,7 +199,7 @@ export function activate(context: vscode.ExtensionContext) {
           // separately bundled files, never serialized functions in inline scripts.
           panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${style}"><title>miku visual</title></head><body>
+<link rel="stylesheet" href="${style}"><title>Miku Visual3D</title></head><body>
 <div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">正在打开影像</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
 <div id="toolbar" role="toolbar" aria-label="影像显示工具">
 <button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>

@@ -1,6 +1,6 @@
 {
-  "name": "miku-visual",
-  "displayName": "miku visual",
+  "name": "miku-visual3d",
+  "displayName": "Miku Visual3D",
   "icon": "media/brand.png",
   "description": "Remote-first NIfTI viewer with 2D slices and Flying Edges mask surfaces. Read volumes on the workspace host; transfer only slices and meshes.",
   "version": "0.0.0",
@@ -31,11 +31,11 @@
     "commands": [
       {
         "command": "mikuVisual.open",
-        "title": "miku visual: Open Image"
+        "title": "MikuVisual: Open Image"
       },
       {
         "command": "mikuVisual.logs",
-        "title": "miku visual: Show Logs"
+        "title": "MikuVisual: Show Logs"
       },
       {
         "command": "mikuVisual.addOverlay",
@@ -46,7 +46,7 @@
     "customEditors": [
       {
         "viewType": "mikuVisual.image",
-        "displayName": "miku visual",
+        "displayName": "Miku Visual3D",
         "selector": [
           {
             "filenamePattern": "*.nii"
@@ -74,7 +74,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
-    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --allow-missing-repository --out builds/miku-visual-0.0.0.vsix"
+    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual3d-0.0.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -89,5 +89,16 @@
   },
   "dependencies": {
     "three": "^0.187.0"
+  },
+  "author": {
+    "name": "eejyang"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eejyang/miku-visual3d.git"
+  },
+  "homepage": "https://github.com/eejyang/miku-visual3d#readme",
+  "bugs": {
+    "url": "https://github.com/eejyang/miku-visual3d/issues"
   }
 }

@@ -84,7 +84,7 @@ export async function run() {
   const root = process.env.MIKU_VISUAL_TEST_ROOT!,
     scratch = process.env.MIKU_VISUAL_TEST_SCRATCH!;
   const extension = vscode.extensions.getExtension<ExtensionApi>(
-    "miku-local.miku-visual",
+    "miku-local.miku-visual3d",
   );
   assert(extension, "Independent extension was not discovered");
   const api = await extension.activate();
@@ -103,8 +103,8 @@ export async function run() {
     /* Optional local MRI. */
   }
   try {
-    const ct = join(root, "ct.nii.gz"),
-      mask = join(root, "ct_mask.nii.gz");
+    const ct = join(root, "assets", "ct.nii.gz"),
+      mask = join(root, "assets", "ct_mask.nii.gz");
     await Promise.all([access(ct), access(mask)]);
     files.push(ct);
     const gt = join(scratch, "ct-mask-GT-copy.nii.gz");
@@ -168,8 +168,8 @@ export async function run() {
   // Use the real sparse CT mask too when it is available.
   const standaloneMasks = [sampleMask];
   try {
-    await access(join(root, "ct_mask.nii.gz"));
-    standaloneMasks.push(join(root, "ct_mask.nii.gz"));
+    await access(join(root, "assets", "ct_mask.nii.gz"));
+    standaloneMasks.push(join(root, "assets", "ct_mask.nii.gz"));
   } catch {
     /* Optional. */
   }

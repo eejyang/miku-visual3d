@@ -12,5 +12,5 @@ vitest.config.ts
 .reference/**
 builds/**
 dist/integration*
-*.nii
-*.nii.gz
+**/*.nii
+**/*.nii.gz

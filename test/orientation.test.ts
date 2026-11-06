@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
-import { describePlanes, directionLabel } from "../src/webview/orientation";
+import {
+  describePlanes,
+  directionLabel,
+  displayDirections,
+  voxelToScreen,
+  screenToVoxel,
+} from "../src/webview/orientation";
 import type { VolumeInfo } from "../src/protocol";
 
 function volume(affine: number[], hasOrientation = true): VolumeInfo {
@@ -76,4 +82,66 @@ it("retains RAS anatomical side labels, including the inferior I label", () => {
   expect(directionLabel(image, 0, 1)).toBe("L");
   expect(directionLabel(image, 1, 1)).toBe("A");
   expect(directionLabel(image, 2, -1)).toBe("I");
+});
+
+it("keeps radiological screen directions and reversible positioning for all 48 signed axis permutations", () => {
+  const orders = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+  ];
+  for (const order of orders)
+    for (let signs = 0; signs < 8; signs++) {
+      const affine = Array(12).fill(0);
+      order.forEach((world, voxel) => {
+        affine[world * 4 + voxel] =
+          (signs & (1 << voxel) ? -1 : 1) * [2, 3, 4][voxel];
+      });
+      const image = volume(affine);
+      const planes = describePlanes(image);
+      expect(planes.map((p) => displayDirections(image, p.display))).toEqual([
+        { left: "R", right: "L", top: "A", bottom: "P" },
+        { left: "A", right: "P", top: "S", bottom: "I" },
+        { left: "R", right: "L", top: "S", bottom: "I" },
+      ]);
+      for (const { display } of planes) {
+        for (let u = 0; u < image.dimensions[display.u]; u++)
+          for (let v = 0; v < image.dimensions[display.v]; v++) {
+            const indices = [0, 0, 0];
+            indices[display.u] = u;
+            indices[display.v] = v;
+            const [x, y] = voxelToScreen(display, image.dimensions, indices);
+            expect(screenToVoxel(display, image.dimensions, x, y)).toEqual([
+              u,
+              v,
+            ]);
+          }
+        // Outside-image clicks clamp to edges without wrapping after reflection.
+        expect(screenToVoxel(display, image.dimensions, -1, -1)).toEqual([
+          display.flipU ? image.dimensions[display.u] - 1 : 0,
+          display.flipV ? 0 : image.dimensions[display.v] - 1,
+        ]);
+      }
+    }
+});
+
+it("preserves uncertainty for oblique and missing orientation", () => {
+  const angle = Math.PI / 9,
+    c = Math.cos(angle),
+    s = Math.sin(angle);
+  const oblique = volume([1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0]);
+  const axial = describePlanes(oblique)[0];
+  expect(displayDirections(oblique, axial.display)).toEqual({
+    left: "R",
+    right: "L",
+    top: "≈A",
+    bottom: "≈P",
+  });
+  const unknown = { ...oblique, hasOrientation: false };
+  expect(
+    displayDirections(unknown, describePlanes(unknown)[0].display),
+  ).toEqual({ left: "", right: "", top: "", bottom: "" });
 });
