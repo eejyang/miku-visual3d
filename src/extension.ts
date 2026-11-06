@@ -7,7 +7,7 @@ import {
   type Source,
 } from "./backend/session";
 
-const VIEW = "mikuVisual.image";
+const VIEW = "mikuVolume.image";
 const sessions = new Map<string, ViewerSession>();
 const viewerPanels = new Map<string, vscode.WebviewPanel>();
 let lastActiveViewer: string | undefined;
@@ -22,21 +22,21 @@ export function activate(context: vscode.ExtensionContext) {
   const updateAddImageContext = () =>
     vscode.commands.executeCommand(
       "setContext",
-      "mikuVisual.hasOpenImage",
+      "mikuVolume.hasOpenImage",
       [...sessions.values()].some((session) => session.diagnostics.loaded),
     );
   void updateAddImageContext();
-  const output = vscode.window.createOutputChannel("Miku Visual3D");
+  const output = vscode.window.createOutputChannel("Miku Volume");
   context.subscriptions.push(output);
   const log = (message: string) =>
     output.appendLine(`[${new Date().toISOString()}] ${message}`);
   log(`Activated on ${vscode.env.remoteName || "local"} workspace host`);
   context.subscriptions.push(
-    vscode.commands.registerCommand("mikuVisual.logs", () => output.show()),
+    vscode.commands.registerCommand("mikuVolume.logs", () => output.show()),
   );
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "mikuVisual.open",
+      "mikuVolume.open",
       async (uri?: vscode.Uri) => {
         try {
           if (!uri)
@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
           log(String(error));
           void vscode.window.showErrorMessage(
-            `Miku Visual3D: ${String(error)}`,
+            `Miku Volume: ${String(error)}`,
           );
         }
       },
@@ -60,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "mikuVisual.addOverlay",
+      "mikuVolume.addOverlay",
       async (uris?: vscode.Uri | vscode.Uri[], selectedUris?: vscode.Uri[]) => {
         const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
         const activeKey =
@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
         const panel = key ? viewerPanels.get(key) : undefined;
         if (!key || !session || !panel) {
           void vscode.window.showInformationMessage(
-            "Please open an image with MikuVisual3D first.",
+            "Please open an image with Miku Volume first.",
           );
           return;
         }
@@ -173,14 +173,14 @@ export function activate(context: vscode.ExtensionContext) {
           if (panel.active) lastActiveViewer = key;
           const receive = panel.webview.onDidReceiveMessage((message) => {
             if (message?.type === "openImage") {
-              void vscode.commands.executeCommand("mikuVisual.open");
+              void vscode.commands.executeCommand("mikuVolume.open");
             } else void session.receive(message);
           });
           const timer = setTimeout(() => {
             if (!session.diagnostics.ready) {
               log("Webview did not start within 15 seconds");
               void vscode.window.showErrorMessage(
-                "Miku Visual3D could not start. Run MikuVisual: Show Logs for details.",
+                "Miku Volume could not start. Run Miku Volume: Show Logs for details.",
               );
             }
           }, 15000);
@@ -202,8 +202,8 @@ export function activate(context: vscode.ExtensionContext) {
           // separately bundled files, never serialized functions in inline scripts.
           panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${style}"><title>Miku Visual</title></head><body>
-<div id="app"><header><span class="brand" aria-label="miku Visual"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual 3D</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
+<link rel="stylesheet" href="${style}"><title>Miku Volume</title></head><body>
+<div id="app"><header><span class="brand" aria-label="Miku Volume"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" alt=""><small>miku</small></span><span class="brand-wordmark">Volume</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
 <div id="toolbar" role="toolbar" aria-label="影像显示工具">
 <button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>
 <button class="icon-button" id="addImage" title="附加影像 / 分割文件" aria-label="附加影像 / 分割文件" disabled>${icon("file-plus")}</button>
@@ -246,7 +246,7 @@ export async function deactivate() {
   lastActiveViewer = undefined;
   await vscode.commands.executeCommand(
     "setContext",
-    "mikuVisual.hasOpenImage",
+    "mikuVolume.hasOpenImage",
     false,
   );
 }

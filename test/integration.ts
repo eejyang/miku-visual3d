@@ -60,7 +60,7 @@ async function synthetic(path: string, mask = false, shift = 0) {
           352 + (x + dim * (y + dim * z)) * 2,
         );
       }
-  await writeFile(path, gzipSync(bytes));
+  await writeFile(path, path.endsWith(".gz") ? gzipSync(bytes) : bytes);
 }
 async function waitForSurfaces(
   api: ExtensionApi,
@@ -84,17 +84,19 @@ export async function run() {
   const root = process.env.MIKU_VISUAL_TEST_ROOT!,
     scratch = process.env.MIKU_VISUAL_TEST_SCRATCH!;
   const extension = vscode.extensions.getExtension<ExtensionApi>(
-    "eejyang.miku-visual-3d",
+    "eejyang.miku-volume",
   );
   assert(extension, "Independent extension was not discovered");
   const api = await extension.activate();
   const sample = join(scratch, "synthetic.nii.gz");
   await synthetic(sample);
+  const sampleNii = join(scratch, "synthetic.nii");
+  await synthetic(sampleNii);
   const sampleMask = join(scratch, "synthetic-mask.nii.gz");
   await synthetic(sampleMask, true);
   const samplePrediction = join(scratch, "synthetic-prediction.nii.gz");
   await synthetic(samplePrediction, true, 2);
-  const files = [sample];
+  const files = [sample, sampleNii];
   const masks = new Map([[sample, [sampleMask, samplePrediction]]]);
   try {
     await access(join(root, "mri.nii.gz"));
@@ -116,15 +118,16 @@ export async function run() {
   const results = [];
   for (const path of files) {
     const uri = vscode.Uri.file(path);
-    await vscode.commands.executeCommand(
-      "vscode.openWith",
-      uri,
-      "mikuVisual.image",
-    );
+    // Ordinary file opening must resolve to our default editor for both formats.
+    await vscode.commands.executeCommand("vscode.open", uri);
     let state = await waitForPaint(api, uri);
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    assert(input instanceof vscode.TabInputCustom);
+    assert.equal(input.viewType, "mikuVolume.image");
+    assert.equal(input.uri.toString(), uri.toString());
     if (masks.has(path)) {
       await vscode.commands.executeCommand(
-        "mikuVisual.addOverlay",
+        "mikuVolume.addOverlay",
         masks.get(path)!.map((mask) => vscode.Uri.file(mask)),
       );
       const deadline = Date.now() + 60000;
@@ -175,13 +178,13 @@ export async function run() {
   }
   for (const path of standaloneMasks) {
     const uri = vscode.Uri.file(path);
-    await vscode.commands.executeCommand("mikuVisual.open", uri);
+    await vscode.commands.executeCommand("mikuVolume.open", uri);
     await waitForPaint(api, uri);
     let state = await waitForSurfaces(api, uri, 1);
     assert.equal(state.sourceKind, "mask");
     if (path === sampleMask) {
       await vscode.commands.executeCommand(
-        "mikuVisual.addOverlay",
+        "mikuVolume.addOverlay",
         vscode.Uri.file(samplePrediction),
       );
       state = await waitForSurfaces(api, uri, 2);

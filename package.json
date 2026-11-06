@@ -1,7 +1,7 @@
 {
-  "name": "miku-visual-3d",
-  "displayName": "Miku Visual 3D",
-  "icon": "media/icon.png",
+  "name": "miku-volume",
+  "displayName": "Miku Volume",
+  "icon": "media/brand.png",
   "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces.",
   "version": "1.0.0",
   "type": "module",
@@ -26,8 +26,8 @@
   ],
   "main": "./dist/extension.cjs",
   "activationEvents": [
-    "onCustomEditor:mikuVisual.image",
-    "onCommand:mikuVisual.open"
+    "onCustomEditor:mikuVolume.image",
+    "onCommand:mikuVolume.open"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -38,23 +38,23 @@
   "contributes": {
     "commands": [
       {
-        "command": "mikuVisual.open",
-        "title": "MikuVisual: Open Image"
+        "command": "mikuVolume.open",
+        "title": "Miku Volume: Open Image"
       },
       {
-        "command": "mikuVisual.logs",
-        "title": "MikuVisual: Show Logs"
+        "command": "mikuVolume.logs",
+        "title": "Miku Volume: Show Logs"
       },
       {
-        "command": "mikuVisual.addOverlay",
-        "title": "MikuVisual: Add Image",
-        "enablement": "mikuVisual.hasOpenImage"
+        "command": "mikuVolume.addOverlay",
+        "title": "Miku Volume: Add Image",
+        "enablement": "mikuVolume.hasOpenImage"
       }
     ],
     "customEditors": [
       {
-        "viewType": "mikuVisual.image",
-        "displayName": "MikuVisual3D",
+        "viewType": "mikuVolume.image",
+        "displayName": "Miku Volume",
         "selector": [
           {
             "filenamePattern": "*.nii"
@@ -63,15 +63,15 @@
             "filenamePattern": "*.nii.gz"
           }
         ],
-        "priority": "option"
+        "priority": "default"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "mikuVisual.addOverlay",
-          "when": "mikuVisual.hasOpenImage && resourceFilename =~ /\\.nii(\\.gz)?$/i",
-          "group": "zzzz_mikuVisual@1000"
+          "command": "mikuVolume.addOverlay",
+          "when": "mikuVolume.hasOpenImage && resourceFilename =~ /\\.nii(\\.gz)?$/i",
+          "group": "zzzz_mikuVolume@1000"
         }
       ]
     }
@@ -82,7 +82,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
-    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual-3d-1.0.0.vsix"
+    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-volume-1.0.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -104,10 +104,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/eejyang/miku-visual3d.git"
+    "url": "https://github.com/eejyang/miku-volume.git"
   },
-  "homepage": "https://github.com/eejyang/miku-visual3d#readme",
+  "homepage": "https://github.com/eejyang/miku-volume#readme",
   "bugs": {
-    "url": "https://github.com/eejyang/miku-visual3d/issues"
+    "url": "https://github.com/eejyang/miku-volume/issues"
   }
 }
