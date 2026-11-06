@@ -1,36 +1,33 @@
+--------------------
 # Miku Volume
+轻量的 VS Code NIfTI 医学影像查看插件，支持三切面联动、窗宽窗位调节、多份分割 Mask 对比与三维表面显示。
 
-在 VS Code 中查看 NIfTI 医学影像与分割 Mask，支持三切面联动和三维表面显示。
+作者：[eejyang](https://github.com/eejyang) · [GitHub](https://github.com/eejyang/miku-volume) · [问题反馈](https://github.com/eejyang/miku-volume/issues)
+
+在 VS Code 扩展市场搜索 **Miku Volume** 安装，或从 [Releases](https://github.com/eejyang/miku-volume/releases) 下载 `.vsix` 并通过 **Install from VSIX…** 安装，完成后重载窗口。
+
+## 效果展示
 
 ![Miku Volume 肺部 CT 与 Mask 四窗查看界面](docs/images/screenshot.png)
 
-*肺部 CT 与 Mask 实际界面：轴位、矢状位、冠状位联动，结合标签叠加与三维表面查看结构。*
-
-## 功能
-
-- 轴位、矢状位、冠状位与三维四窗联动，支持切换布局。
-- 固定放射学显示方向：轴位、冠状位左 R 右 L，矢状位左 A 右 P；方向未知或斜切时保留相应提示。
-- 窗宽窗位预设、手动调窗、Gray、Gray Inverted、Bone、Viridis、Plasma、Turbo 等 14 种颜色映射。
-- 多份 Mask 对比、标签自动配色、显隐、不透明度、实体与线框显示。
-- 标签选择与定位，同步跳转三个切面并聚焦三维结构。
-
-## 使用
-
-1. 从 [Releases](https://github.com/eejyang/miku-volume/releases) 下载 `miku-volume-1.0.0.vsix`，在扩展面板选择 **Install from VSIX…** 安装，然后重载窗口。
-2. 双击 `.nii` / `.nii.gz` 即可打开，或运行 **Miku Volume: Open Image**。若已配置其他默认编辑器，可在 **Open With… → Configure default editor…** 中选择 **Miku Volume**。
-3. 工具栏文件夹图标在独立窗口打开影像，旁边的加号文件图标向当前窗口附加影像或 Mask；也可右键文件选择 **Miku Volume: Add Image**。
-
-加载时自动识别：数值种类少于 256 的文件视为 Mask，达到 256 种视为影像，背景值也计入统计。
+## 使用方式
 
 | 操作 | 交互 |
 | --- | --- |
-| 切片与联动 | 滚轮 / 切片滑块；点击影像定位 |
-| 窗宽窗位 | 预设菜单、WL / WW 输入框或右键拖动 |
-| 标签选择与定位 | 单击标签选中，双击标签跳转 |
-| Mask 显隐 | 眼睛图标控制整份 Mask 或单个标签 |
-| 三维视角 | 左键旋转、右键平移、滚轮缩放；“复位”恢复相机 |
+| 打开影像 / Mask | 双击 `.nii` / `.nii.gz`，或右键选择 **Open With… → Miku Volume**；也可使用工具栏文件夹图标 |
+| 附加影像 / Mask | 工具栏加号文件图标，或右键文件选择 **Miku Volume: Add Image** |
+| 切换主影像 | 加载多份影像后，通过标题栏下拉菜单切换 |
+| 切片浏览与定位 | 在二维视窗中滚动滚轮或拖动切片滑块；单击影像进行联动定位 |
+| 视窗布局 / 十字线 | 通过工具栏布局菜单切换视窗；十字线图标控制二维参考线显隐 |
+| 窗宽窗位 | 选择调窗预设、编辑 WL / WW，或在二维视窗中右键拖动 |
+| 影像颜色映射 | 通过工具栏 Colormap 菜单切换 |
+| 重置二维显示 | 工具栏重置图标恢复默认窗宽窗位及二维视图 |
+| 标签选择与定位 | 单击标签选中，双击标签定位至对应结构 |
+| Mask 显隐 | 通过眼睛图标显示或隐藏整份 Mask 或单个标签 |
+| Mask 颜色 / 不透明度 | 在 Mask 模块中选择配色，或拖动不透明度滑块 |
+| 三维表面模式 | 通过 Mask 模块中的实体 / 线框图标切换 |
+| 表面重建 / Mask 移除 | 刷新图标重新生成三维表面；删除图标移除当前 Mask |
+| 三维视角 | 左键拖动旋转、右键拖动平移、滚轮缩放；“复位”恢复相机 |
 
-
-作者：[eejyang](https://github.com/eejyang) · [GitHub](https://github.com/eejyang/miku-volume) · [问题反馈](https://github.com/eejyang/miku-volume/issues)
 
 原创代码许可：[BSD-2-Clause](LICENSE)；第三方组件及色表许可见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
