@@ -302,7 +302,9 @@ it("switches layouts and crosshair visibility without changing slices or issuing
   }
   crosshair.click();
   expect(
-    [...doc.querySelectorAll<any>(".crosshair")].every((n) => !n.hidden),
+    [...doc.querySelectorAll<any>("[data-axis] .crosshair")].every(
+      (n) => !n.hidden,
+    ),
   ).toBe(true);
   expect([...doc.querySelectorAll<any>(".slice")].map((n) => n.value)).toEqual(
     positions,
@@ -344,11 +346,20 @@ it("maps only main-image colors and shares Mask visibility, opacity and custom c
   const mask = pixel(8);
   const gray = pixel(12);
   const requests = sent.length;
-  for (const name of ["viridis", "magma", "hot"]) {
+  const colormaps = [...doc.querySelectorAll<any>("#colormap option")]
+    .map((option) => option.value)
+    .filter((name) => name !== "gray");
+  for (const name of colormaps) {
     input("#colormap", name, "change");
     expect(pixel(12)).not.toEqual(gray);
     expect(pixel(8)).toEqual(mask);
   }
+  input(".surface-color-mode", "#ef4444", "change");
+  expect(pixel(8)).toEqual([239, 68, 68]);
+  expect(doc.querySelector<any>(".surface-color")!.value).toBe("#ef4444");
+  input(".surface-color-mode", "#3b82f6", "change");
+  expect(pixel(8)).toEqual([59, 130, 246]);
+  expect(doc.querySelector<any>(".surface-color")!.value).toBe("#3b82f6");
   input(".surface-color", "#ff0000");
   expect(pixel(8)).toEqual([255, 0, 0]);
   input(".surface-opacity", "0");
@@ -399,14 +410,16 @@ it("synchronizes presets and manual WL/WW, then resets cached display without cl
   expect(maskRow.open).toBe(false);
 });
 
-it("uses only reliable metadata, omits unknown spacing units and hides Mask names from the header", () => {
+it("defaults missing spacing units to millimeters and hides Mask names from the header", () => {
   const { doc, post } = launch();
   post({
     type: "volume",
     volume: { ...reference, frames: 4, spatialUnits: 0 },
     sourceKind: "image",
   });
-  expect(doc.getElementById("details")!.textContent).toBe("2 × 2 × 2 · 4 帧");
+  expect(doc.getElementById("details")!.textContent).toBe(
+    "2 × 2 × 2 · 1 × 1 × 1 mm · 4 frames",
+  );
   const second = {
     id: "image-2",
     kind: "image" as const,
@@ -439,6 +452,11 @@ it("uses only reliable metadata, omits unknown spacing units and hides Mask name
 
 it("jumps all linked slices to the selected Mask label without changing its visibility", () => {
   const { doc, post, paint, sent } = launch();
+  const viewport = doc.getElementById("renderViewport")!;
+  Object.defineProperties(viewport, {
+    clientWidth: { value: 400 },
+    clientHeight: { value: 300 },
+  });
   const affine = [0, -2, 0.5, 100, 3, 0, 0, -50, 0, 0, 4, 20];
   const info = { ...reference, dimensions: [10, 10, 10], affine };
   post({ type: "volume", volume: info, sourceKind: "image" });
@@ -473,12 +491,11 @@ it("jumps all linked slices to the selected Mask label without changing its visi
       ],
     },
   });
-  const locate = doc.querySelector<any>(".surface-locate")!;
-  expect(locate.disabled).toBe(true);
-  doc.querySelector<any>(".surface-label-select")!.click();
-  expect(locate.disabled).toBe(false);
+  expect(doc.querySelector(".surface-locate")).toBeNull();
+  const select = doc.querySelector<any>(".surface-label-select")!;
+  select.click();
   doc.querySelector<any>(".surface-visible")!.click();
-  locate.click();
+  select.dispatchEvent(new doc.defaultView!.MouseEvent("dblclick"));
   expect(
     sent
       .filter((m) => m.type === "slice")
@@ -493,6 +510,14 @@ it("jumps all linked slices to the selected Mask label without changing its visi
   expect(
     doc.querySelector(".surface-visible")!.getAttribute("aria-pressed"),
   ).toBe("false");
+  const crosshair = viewport.querySelector<any>(".crosshair")!;
+  expect(crosshair.hidden).toBe(false);
+  expect(crosshair.style.getPropertyValue("--crosshair-x")).toBe("200px");
+  expect(crosshair.style.getPropertyValue("--crosshair-y")).toBe("150px");
+  doc.getElementById("toggleCrosshair")!.click();
+  expect(crosshair.hidden).toBe(true);
+  doc.getElementById("toggleCrosshair")!.click();
+  expect(crosshair.hidden).toBe(false);
   expect(
     sent.filter(
       (m) => m.type === "clientError" || m.type === "surfaceClientError",

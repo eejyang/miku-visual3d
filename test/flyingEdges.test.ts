@@ -82,5 +82,5 @@ it("handles empty masks and enforces the mesh budget before output allocation", 
   expect(flyingEdges(new Uint32Array(8), [2, 2, 2], identity)).toEqual([]);
   expect(() =>
     flyingEdges(new Uint32Array([1]), [1, 1, 1], identity, undefined, 7),
-  ).toThrow("上限");
+  ).toThrow("limit");
 });

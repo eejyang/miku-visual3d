@@ -222,12 +222,12 @@ export function assertOverlayDimensions(
     base.dimensions.some((d, i) => d !== overlay.dimensions[i])
   ) {
     throw new Error(
-      `叠加影像尺寸不匹配：需要 ${base.dimensions.join(" × ")}，实际为 ${overlay.dimensions.join(" × ")}。`,
+      `Overlay dimensions mismatch: expected ${base.dimensions.join(" × ")}, got ${overlay.dimensions.join(" × ")}.`,
     );
   }
   if (overlay.frames !== 1 && overlay.frames !== base.frames) {
     throw new Error(
-      `叠加影像帧数不匹配：需要 1 帧或 ${base.frames} 帧，实际为 ${overlay.frames} 帧。`,
+      `Overlay frame count mismatch: expected 1 or ${base.frames}, got ${overlay.frames}.`,
     );
   }
 }
@@ -379,7 +379,9 @@ export class RemoteVolume {
       throw new Error("Invalid mask frame.");
     const count = this.info.dimensions.reduce((a, b) => a * b, 1);
     if (count > 64 * 1024 * 1024)
-      throw new Error("三维 mask 超过约 6700 万体素上限；二维叠加仍可使用。");
+      throw new Error(
+        "3D mask exceeds the 67,108,864-voxel limit; 2D overlays remain available.",
+      );
     const labels = new Uint32Array(count);
     const [size, read] = TYPES[this.header.datatype];
     const buffer = Buffer.alloc(BLOCK_BYTES);
@@ -405,14 +407,14 @@ export class RemoteVolume {
           this.header.intercept;
         if (!Number.isInteger(value) || value < 0 || value > 0xffffffff)
           throw new Error(
-            "三维表面需要非负整数标签 mask（0 为背景）；二维叠加不受影响。",
+            "3D surfaces require nonnegative integer labels (0 is background); 2D overlays are unaffected.",
           );
         labels[start + i] = value;
         if (value) {
           values.add(value);
           if (values.size > 128)
             throw new Error(
-              "三维 mask 超过 128 个标签上限；二维叠加仍可使用。",
+              "3D mask exceeds the 128-label limit; 2D overlays remain available.",
             );
         }
       }

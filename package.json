@@ -1,9 +1,9 @@
 {
   "name": "miku-visual3d",
-  "displayName": "Miku Visual3D",
+  "displayName": "Miku Visual 3D",
   "icon": "media/brand.png",
-  "description": "Remote-first NIfTI viewer with 2D slices and Flying Edges mask surfaces. Read volumes on the workspace host; transfer only slices and meshes.",
-  "version": "0.0.0",
+  "description": "NIfTI medical image viewer with linked 2D slices, segmentation overlays and 3D surfaces. Supports local and Remote-SSH workspaces.",
+  "version": "1.0.0",
   "type": "module",
   "publisher": "miku-local",
   "license": "BSD-2-Clause",
@@ -12,6 +12,15 @@
   },
   "categories": [
     "Visualization"
+  ],
+  "keywords": [
+    "NIfTI",
+    "medical imaging",
+    "CT",
+    "MRI",
+    "segmentation",
+    "3D",
+    "Remote-SSH"
   ],
   "extensionKind": [
     "workspace"
@@ -46,7 +55,7 @@
     "customEditors": [
       {
         "viewType": "mikuVisual.image",
-        "displayName": "Miku Visual3D",
+        "displayName": "MikuVisual3D",
         "selector": [
           {
             "filenamePattern": "*.nii"
@@ -74,7 +83,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
-    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual3d-0.0.0.vsix"
+    "package": "npm run check && npm run test && npm run build && vsce package --no-dependencies --githubBranch main --out builds/miku-visual3d-1.0.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -91,7 +100,8 @@
     "three": "^0.187.0"
   },
   "author": {
-    "name": "eejyang"
+    "name": "eejyang",
+    "url": "https://github.com/eejyang"
   },
   "repository": {
     "type": "git",

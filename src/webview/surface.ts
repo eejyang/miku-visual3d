@@ -17,11 +17,26 @@ import {
   WebGLRenderTarget,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { OverlayLayer, SurfaceMesh, SurfaceUpdate } from "../protocol";
+import type {
+  OverlayLayer,
+  SurfaceMesh,
+  SurfaceUpdate,
+  VolumeInfo,
+} from "../protocol";
 import { labelColor } from "./labelColors";
 import { icon } from "./icons";
 
 type SurfaceObject = Mesh<BufferGeometry, MeshPhongMaterial>;
+const MASK_COLORS = [
+  { name: "Red", color: "#ef4444" },
+  { name: "Orange", color: "#f97316" },
+  { name: "Yellow", color: "#facc15" },
+  { name: "Green", color: "#22c55e" },
+  { name: "Cyan", color: "#06b6d4" },
+  { name: "Blue", color: "#3b82f6" },
+  { name: "Purple", color: "#a855f7" },
+  { name: "Pink", color: "#ec4899" },
+] as const;
 interface LayerView {
   info: OverlayLayer;
   group: Group;
@@ -43,7 +58,7 @@ function decode(
   floating: boolean,
 ): Float32Array | Uint32Array {
   const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
-  if (bytes.length % 4) throw new Error("三维网格数据长度错误。");
+  if (bytes.length % 4) throw new Error("Invalid 3D mesh data length.");
   const view = new DataView(bytes.buffer);
   const result = floating
     ? new Float32Array(bytes.length / 4)
@@ -67,6 +82,9 @@ export class SurfaceView {
   private radius = 1;
   private center = new Vector3();
   private hasFramed = false;
+  private crosshair = document.createElement("div");
+  private crosshairPosition?: Vector3;
+  private crosshairEnabled = true;
   private message = document.getElementById("renderMessage")!;
   private list = document.getElementById("surfaceLayers")!;
   private reset = document.getElementById("resetSurface") as HTMLButtonElement;
@@ -85,6 +103,12 @@ export class SurfaceView {
     fill.position.set(-2, 1, -1);
     this.scene.add(key, fill);
     this.camera.up.set(0, 0, 1);
+    this.crosshair.className = "crosshair";
+    this.crosshair.hidden = true;
+    this.crosshair.setAttribute("aria-hidden", "true");
+    this.crosshair.innerHTML =
+      '<span class="crosshair-horizontal"></span><span class="crosshair-vertical"></span>';
+    this.viewport.append(this.crosshair);
     this.reset.onclick = () => this.home();
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(viewport);
@@ -119,6 +143,58 @@ export class SurfaceView {
         .setAttribute("aria-pressed", String(key === id));
   }
 
+  setCrosshair(
+    volume: VolumeInfo,
+    indices: readonly number[],
+    visible: boolean,
+  ) {
+    const a = volume.affine;
+    // Integer voxel indices already refer to voxel centers in NIfTI. Use the
+    // reference affine, including scale, rotation, shear and translation.
+    this.crosshairPosition = new Vector3(
+      a[0] * indices[0] + a[1] * indices[1] + a[2] * indices[2] + a[3],
+      a[4] * indices[0] + a[5] * indices[1] + a[6] * indices[2] + a[7],
+      a[8] * indices[0] + a[9] * indices[1] + a[10] * indices[2] + a[11],
+    );
+    this.crosshairEnabled = visible;
+    this.updateCrosshair();
+  }
+
+  private updateCrosshair() {
+    this.crosshair.hidden = true;
+    if (
+      !this.renderer ||
+      !this.hasFramed ||
+      this.reset.disabled ||
+      !this.crosshairEnabled ||
+      !this.crosshairPosition
+    )
+      return;
+    const width = this.viewport.clientWidth,
+      height = this.viewport.clientHeight;
+    if (!width || !height) return;
+    this.camera.updateMatrixWorld();
+    const point = this.crosshairPosition.clone().project(this.camera);
+    // A cursor outside the camera frustum must not become an edge marker or
+    // appear mirrored when the current voxel is behind the camera.
+    if (
+      !point.toArray().every(Number.isFinite) ||
+      Math.abs(point.x) > 1 ||
+      Math.abs(point.y) > 1 ||
+      Math.abs(point.z) > 1
+    )
+      return;
+    this.crosshair.style.setProperty(
+      "--crosshair-x",
+      `${Math.round(((point.x + 1) * width) / 2)}px`,
+    );
+    this.crosshair.style.setProperty(
+      "--crosshair-y",
+      `${Math.round(((1 - point.y) * height) / 2)}px`,
+    );
+    this.crosshair.hidden = false;
+  }
+
   displayStyle(
     id: string | undefined,
   ):
@@ -147,14 +223,16 @@ export class SurfaceView {
       layer.status.classList.toggle("error", update.state === "error");
       layer.status.hidden = false;
       layer.row.querySelector(".surface-label-count")!.textContent =
-        update.state === "ready" ? `· ${update.meshes.length} 标签` : "";
+        update.state === "ready"
+          ? `· ${update.meshes.length} ${update.meshes.length === 1 ? "label" : "labels"}`
+          : "";
       if (update.state !== "ready") {
         layer.status.textContent = update.message;
         this.refresh();
         return;
       }
       if (!update.meshes.length) {
-        layer.status.textContent = "当前帧全为背景";
+        layer.status.textContent = "Current frame contains background only.";
         this.refresh();
         return;
       }
@@ -169,7 +247,7 @@ export class SurfaceView {
       this.updateSelection(layer);
       const triangles = this.triangleCount(layer);
       layer.status.hidden = true;
-      layer.status.textContent = `${triangles.toLocaleString()} 面`;
+      layer.status.textContent = `${triangles.toLocaleString()} triangles`;
       this.updateBounds();
       if (!this.hasFramed) {
         this.home();
@@ -182,7 +260,7 @@ export class SurfaceView {
       layer.state = "error";
       layer.status.classList.add("error");
       layer.status.hidden = false;
-      layer.status.textContent = `三维显示失败：${error instanceof Error ? error.message : String(error)}`;
+      layer.status.textContent = `3D rendering failed: ${error instanceof Error ? error.message : String(error)}`;
       this.post({
         type: "surfaceClientError",
         layerId: id,
@@ -198,7 +276,7 @@ export class SurfaceView {
     row.open = true;
     row.className = "surface-layer";
     row.dataset.layerId = info.id;
-    row.innerHTML = `<summary><span class="surface-file-info"><button class="icon-button surface-active" title="在二维查看此 Mask" aria-label="在二维查看此 Mask" aria-pressed="false">${icon("layers")}</button><span class="surface-filename"></span><span class="surface-label-count"></span></span><span class="surface-display-controls"><label class="surface-opacity-control">不透明度 <input class="surface-opacity" aria-label="Mask 不透明度" type="range" min="0" max="1" step="0.05"><output></output></label><button class="icon-button surface-visible" title="隐藏标签" aria-label="隐藏标签" aria-pressed="true">${icon("eye")}</button><button class="icon-button surface-locate" title="定位到选中标签" aria-label="定位到选中标签" disabled>${icon("locate-fixed")}</button><span class="surface-modes" role="group" aria-label="表面模式"><button class="icon-button surface-solid" title="实体表面" aria-label="实体表面" aria-pressed="true">${icon("box")}</button><button class="icon-button surface-wireframe" title="线框表面" aria-label="线框表面" aria-pressed="false">${icon("grid-3x3")}</button></span></span><span class="surface-summary-actions"><span class="surface-separator" aria-hidden="true"></span><button class="icon-button surface-rebuild" title="重新生成三维表面" aria-label="重新生成三维表面">${icon("refresh-cw")}</button><button class="icon-button surface-remove" title="移除 Mask" aria-label="移除 Mask">${icon("trash-2")}</button></span></summary><div class="surface-label-controls"><span class="surface-palette" title="Mask 标签配色" aria-hidden="true">${icon("palette")}</span><select class="surface-color-mode" aria-label="Mask 配色"><option value="auto">自动</option><option value="custom">统一颜色</option></select><input class="surface-color" type="color" aria-label="Mask 颜色" disabled hidden><span class="surface-separator" aria-hidden="true"></span><div class="surface-labels" aria-label="标签选择与显隐"></div><span class="surface-layer-status" role="status"></span></div>`;
+    row.innerHTML = `<summary><span class="surface-file-info"><button class="icon-button surface-active" title="在二维查看此 Mask" aria-label="在二维查看此 Mask" aria-pressed="false">${icon("layers")}</button><span class="surface-filename"></span><span class="surface-label-count"></span></span><span class="surface-display-controls"><label class="surface-opacity-control" title="Mask 不透明度">${icon("opacity")} <input class="surface-opacity" aria-label="Mask 不透明度" type="range" min="0" max="1" step="0.05"><output></output></label><button class="icon-button surface-visible" title="隐藏标签" aria-label="隐藏标签" aria-pressed="true">${icon("eye")}</button><span class="surface-modes" role="group" aria-label="表面模式"><button class="icon-button surface-solid" title="实体表面" aria-label="实体表面" aria-pressed="true">${icon("box")}</button><button class="icon-button surface-wireframe" title="线框表面" aria-label="线框表面" aria-pressed="false">${icon("grid-3x3")}</button></span></span><span class="surface-summary-actions"><span class="surface-separator" aria-hidden="true"></span><button class="icon-button surface-rebuild" title="重新生成三维表面" aria-label="重新生成三维表面">${icon("refresh-cw")}</button><button class="icon-button surface-remove" title="移除 Mask" aria-label="移除 Mask">${icon("trash-2")}</button></span></summary><div class="surface-label-controls"><span class="surface-palette" title="Mask colors" aria-hidden="true">${icon("palette")}</span><select class="surface-color-mode" aria-label="Mask colors"><option value="auto">Auto</option><option value="custom" hidden>Custom</option>${MASK_COLORS.map(({ name, color }) => `<option value="${color}">${name}</option>`).join("")}</select><input class="surface-color" type="color" aria-label="Mask 颜色" disabled hidden><span class="surface-separator" aria-hidden="true"></span><div class="surface-labels" aria-label="标签选择与显隐"></div><span class="surface-layer-status" role="status"></span></div>`;
     row.querySelector(".surface-filename")!.textContent = info.volume.name;
     row.querySelector<HTMLElement>(".surface-filename")!.title =
       info.volume.name;
@@ -217,7 +295,7 @@ export class SurfaceView {
       revision: -1,
       state: "idle",
     };
-    layer.status.textContent = "等待提取表面…";
+    layer.status.textContent = "Waiting for surface extraction…";
     this.group.add(layer.group);
     this.list.append(row);
     const button = (selector: string, action: () => void) => {
@@ -242,18 +320,24 @@ export class SurfaceView {
       this.displayChanged();
       this.render();
     });
-    button(".surface-locate", () => this.locateLabel(layer));
     const color = row.querySelector<HTMLInputElement>(".surface-color")!;
     color.value = layer.color;
     const mode = row.querySelector<HTMLSelectElement>(".surface-color-mode")!;
+    const custom = mode.querySelector<HTMLOptionElement>('[value="custom"]')!;
     mode.onchange = () => {
-      layer.colorMode = mode.value === "custom" ? "custom" : "auto";
+      layer.colorMode = mode.value === "auto" ? "auto" : "custom";
+      if (mode.value !== "auto" && mode.value !== "custom") {
+        layer.color = mode.value;
+        color.value = layer.color;
+      }
+      custom.hidden = mode.value !== "custom";
       color.disabled = layer.colorMode === "auto";
       color.hidden = layer.colorMode === "auto";
       this.applyStyle(layer);
     };
     color.oninput = () => {
       layer.colorMode = "custom";
+      custom.hidden = false;
       mode.value = "custom";
       color.disabled = false;
       color.hidden = false;
@@ -307,7 +391,7 @@ export class SurfaceView {
       !vertices.every(Number.isFinite) ||
       indices.some((n) => n >= vertices.length / 3)
     )
-      throw new Error("三维网格包含无效坐标或索引。");
+      throw new Error("3D mesh contains invalid coordinates or indices.");
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(vertices, 3));
     geometry.setIndex(new BufferAttribute(indices, 1));
@@ -378,8 +462,6 @@ export class SurfaceView {
         .querySelector(".surface-label-select")!
         .setAttribute("aria-pressed", String(selected));
     }
-    layer.row.querySelector<HTMLButtonElement>(".surface-locate")!.disabled =
-      !this.labelLocation(layer);
   }
 
   private labelLocation(layer: LayerView) {
@@ -490,12 +572,12 @@ export class SurfaceView {
     this.message.hidden = !!triangles;
     if (!triangles)
       this.message.textContent = !files.length
-        ? "添加标签 mask 后显示三维表面"
+        ? "Mask required"
         : files.some(
               (layer) => layer.state === "loading" || layer.state === "idle",
             )
-          ? "正在提取表面，可展开上方 Mask 模块查看进度"
-          : "没有可显示的表面，请展开 Mask 模块查看详情";
+          ? "Extracting surfaces. See the Mask module for progress."
+          : "No surfaces to display. See the Mask module for details.";
     this.render();
   }
 
@@ -543,7 +625,9 @@ export class SurfaceView {
         if (Math.max(pixels[p], pixels[p + 1], pixels[p + 2]) > 32)
           visiblePixels++;
       if (!visiblePixels)
-        throw new Error("三维表面未能绘制，请检查 VS Code WebGL 支持。");
+        throw new Error(
+          "Unable to render the 3D surface. Check VS Code WebGL support.",
+        );
       this.post({
         type: "surfacePainted",
         layerId: layer.info.id,
@@ -581,7 +665,8 @@ export class SurfaceView {
     renderer.domElement.addEventListener("webglcontextlost", (event) => {
       event.preventDefault();
       this.message.hidden = false;
-      this.message.textContent = "三维图形上下文已丢失，恢复后请点击重新生成";
+      this.message.textContent =
+        "WebGL context lost. Regenerate surfaces after recovery.";
     });
     this.viewport.prepend(renderer.domElement);
     this.renderer = renderer;
@@ -633,6 +718,7 @@ export class SurfaceView {
   }
   private render() {
     this.renderer?.render(this.scene, this.camera);
+    this.updateCrosshair();
   }
   private clearLayer(layer: LayerView) {
     for (const object of [...layer.group.children]) {
@@ -649,5 +735,6 @@ export class SurfaceView {
     this.controls?.dispose();
     for (const layer of this.layers.values()) this.clearLayer(layer);
     this.renderer?.dispose();
+    this.crosshair.remove();
   }
 }

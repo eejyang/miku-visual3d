@@ -116,7 +116,7 @@ it("inherits base geometry and keeps the current overlay if replacement dimensio
   await session.receive({ type: "overlay" });
   expect(messages.at(-1)).toMatchObject({
     type: "error",
-    message: expect.stringContaining("尺寸不匹配"),
+    message: expect.stringContaining("dimensions mismatch"),
   });
   await session.receive({
     type: "slice",

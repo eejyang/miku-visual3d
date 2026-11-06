@@ -124,7 +124,7 @@ it("keeps slices usable after invalid labels", async () => {
         type: "surface",
         surface: {
           state: "error",
-          message: expect.stringContaining("整数标签"),
+          message: expect.stringContaining("nonnegative integer labels"),
         },
       }),
     ),

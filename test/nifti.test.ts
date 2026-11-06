@@ -158,9 +158,9 @@ describe("remote NIfTI slices", () => {
     ).not.toThrow();
     expect(() =>
       assertOverlayDimensions(info, { ...info, dimensions: [2, 2, 2] }),
-    ).toThrow("尺寸不匹配");
+    ).toThrow("dimensions mismatch");
     expect(() => assertOverlayDimensions(info, { ...info, frames: 3 })).toThrow(
-      "帧数不匹配",
+      "frame count mismatch",
     );
     expect(() =>
       assertOverlayDimensions(info, {
@@ -203,7 +203,7 @@ describe("remote NIfTI slices", () => {
       const wrongSize = Buffer.from(bytes);
       wrongSize.writeInt16LE(2, 42);
       await expect(volume(wrongSize, gzip, reference)).rejects.toThrow(
-        "尺寸不匹配",
+        "dimensions mismatch",
       );
     },
   );
@@ -247,7 +247,9 @@ it("rejects non-label intensities only in the 3D path", async () => {
   bytes.writeFloatLE(0.5, 112);
   bytes.writeFloatLE(0, 116);
   const source = await volume(bytes);
-  await expect(source.labelFrame(0)).rejects.toThrow("整数标签");
+  await expect(source.labelFrame(0)).rejects.toThrow(
+    "nonnegative integer labels",
+  );
   expect(
     await source.slice({ id: 1, axis: 2, index: 0, frame: 0 }),
   ).not.toBeNull();

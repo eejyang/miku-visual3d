@@ -14,7 +14,7 @@ let lastActiveViewer: string | undefined;
 
 function source(uri: vscode.Uri): Source {
   if (uri.scheme !== "file" && uri.scheme !== "vscode-remote")
-    throw new Error("请打开工作区主机上的 NIfTI 文件。");
+    throw new Error("Please open a NIfTI file on the workspace host.");
   return { path: uri.fsPath, name: uri.path.split("/").pop() || "image.nii" };
 }
 
@@ -51,7 +51,9 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.commands.executeCommand("vscode.openWith", uri, VIEW);
         } catch (error) {
           log(String(error));
-          void vscode.window.showErrorMessage(`Miku Visual3D: ${String(error)}`);
+          void vscode.window.showErrorMessage(
+            `Miku Visual3D: ${String(error)}`,
+          );
         }
       },
     ),
@@ -78,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
         const panel = key ? viewerPanels.get(key) : undefined;
         if (!key || !session || !panel) {
           void vscode.window.showInformationMessage(
-            "请先用 Miku Visual3D 打开影像。",
+            "Please open an image with Miku Visual3D first.",
           );
           return;
         }
@@ -95,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
             uri.scheme !== target.scheme ||
             uri.authority !== target.authority
           )
-            throw new Error("添加的影像必须位于同一工作区主机。");
+            throw new Error("Added images must be on the same workspace host.");
         panel.reveal(panel.viewColumn);
         await session.addOverlay(picked?.map(source));
       },
@@ -152,7 +154,9 @@ export function activate(context: vscode.ExtensionContext) {
                     uri.scheme !== document.uri.scheme ||
                     uri.authority !== document.uri.authority
                   )
-                    throw new Error("叠加影像必须位于同一远程主机。");
+                    throw new Error(
+                      "Overlay images must be on the same remote host.",
+                    );
                 return picked.map(source);
               },
               log,
@@ -177,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!session.diagnostics.ready) {
               log("Webview did not start within 15 seconds");
               void vscode.window.showErrorMessage(
-                "Miku Visual3D 界面未能启动。请运行 MikuVisual: Show Logs 查看原因。",
+                "Miku Visual3D could not start. Run MikuVisual: Show Logs for details.",
               );
             }
           }, 15000);
@@ -200,19 +204,19 @@ export function activate(context: vscode.ExtensionContext) {
           panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${style}"><title>Miku Visual3D</title></head><body>
-<div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">正在打开影像</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
+<div id="app"><header><span class="brand" aria-label="miku Visual3D"><span class="brand-logo"><img class="brand-mark" src="${brand}" width="24" height="24" alt=""><small>miku</small></span><span class="brand-wordmark">Visual3D</span></span><h1 id="title">Opening image…</h1><select id="mainImage" aria-label="主影像" hidden></select><p id="details"></p></header>
 <div id="toolbar" role="toolbar" aria-label="影像显示工具">
 <button class="icon-button" id="loadImage" title="打开影像 / 分割文件" aria-label="打开影像 / 分割文件">${icon("folder-open")}</button>
 <label class="icon-select" title="视窗布局">${icon("layout")}<select id="viewLayout" aria-label="视窗布局" disabled><option value="quad">四窗</option><option value="slices">三切面</option><optgroup label="单窗"><option value="axial">轴位</option><option value="sagittal">矢状位</option><option value="coronal">冠状位</option><option value="render">三维表面</option></optgroup></select></label>
 <button class="icon-button" id="toggleCrosshair" title="显示 / 隐藏十字线" aria-label="显示 / 隐藏十字线" aria-pressed="true" disabled>${icon("crosshair")}</button>
 <span class="toolbar-separator" aria-hidden="true"></span>
-<label class="toolbar-menu" id="colormapLabel" title="影像颜色映射">${icon("palette")}<select id="colormap" aria-label="影像颜色映射" disabled><option value="gray">Gray</option><option value="viridis">Viridis</option><option value="magma">Magma</option><option value="hot">Hot</option></select></label>
-<label class="toolbar-menu" id="windowPresetLabel" title="窗宽窗位预设">${icon("contrast")}<select id="windowPreset" aria-label="调窗预设" title="CT 预设按 HU 应用；MRI 或其他强度数据请使用自动范围或自定义" disabled><option value="auto">自动范围</option><option value="custom">自定义</option></select></label><label id="levelLabel">WL <input id="level" aria-label="窗位 WL" type="number" step="any" value="0" disabled></label><label id="windowLabel">WW <input id="window" aria-label="窗宽 WW" type="number" min="0.00001" step="any" value="1" disabled></label>
+<label class="toolbar-menu" id="colormapLabel" title="影像颜色映射">${icon("palette")}<select id="colormap" aria-label="影像颜色映射" disabled><option value="gray">Gray</option><option value="gray_r">Gray Inverted</option><option value="bone">Bone</option><option value="copper">Copper</option><option value="viridis">Viridis</option><option value="plasma">Plasma</option><option value="magma">Magma</option><option value="inferno">Inferno</option><option value="cividis">Cividis</option><option value="hot">Hot</option><option value="cool">Cool</option><option value="turbo">Turbo</option><option value="jet">Jet</option><option value="coolwarm">Coolwarm</option></select></label>
+<label class="toolbar-menu" id="windowPresetLabel" title="Window preset">${icon("contrast")}<select id="windowPreset" aria-label="Window preset" title="CT presets use HU. For MRI, use Auto or Custom." disabled><option value="auto">Auto</option><option value="custom">Custom</option></select></label><label id="levelLabel">WL <input id="level" aria-label="Window level" type="number" step="any" value="0" disabled></label><label id="windowLabel">WW <input id="window" aria-label="Window width" type="number" min="0.00001" step="any" value="1" disabled></label>
 <label id="frameLabel" hidden>帧 <input id="frame" type="range" min="0" value="0"><span id="frameValue"></span></label>
 <button class="icon-button" id="resetDisplay" title="重置影像显示" aria-label="重置影像显示" disabled>${icon("rotate-ccw")}</button>
 </div>
 <div id="surfaceLayers" aria-label="Mask 管理" hidden></div>
-<main id="panels" hidden data-layout="quad" aria-label="四窗影像视图"><section id="renderPanel" data-view="render" class="plane render-panel" aria-labelledby="renderTitle"><div class="plane-title"><div class="plane-heading"><h2 id="renderTitle">三维表面</h2><span class="plane-english">3D Surface</span></div><div class="render-actions"><button id="resetSurface" disabled title="恢复初始视角">复位</button></div></div><div id="renderViewport" class="viewport"><p id="renderMessage" class="render-message">添加标签 mask 后显示三维表面</p><span class="render-hint">左键旋转 · 右键平移 · 滚轮缩放</span></div></section></main><div id="startup">正在启动查看器…</div><footer><span id="status" role="status" aria-live="polite">正在加载界面脚本…</span><span>滚轮切片 · 右键拖动调窗 · 点击联动定位</span></footer></div>
+<main id="panels" hidden data-layout="quad" aria-label="四窗影像视图"><section id="renderPanel" data-view="render" class="plane render-panel" aria-labelledby="renderTitle"><div class="plane-title"><div class="plane-heading"><h2 id="renderTitle">三维表面</h2><span class="plane-english">3D Surface</span></div><div class="render-actions"><button id="resetSurface" disabled title="恢复初始视角">复位</button></div></div><div id="renderViewport" class="viewport"><p id="renderMessage" class="render-message">Mask required</p></div></section></main><div id="startup">Starting viewer…</div><footer><span id="status" role="status" aria-live="polite">Loading viewer script…</span></footer></div>
 <script nonce="${nonce}" src="${script}" defer></script></body></html>`;
         },
       },

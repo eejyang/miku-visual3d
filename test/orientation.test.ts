@@ -52,9 +52,9 @@ it("marks oblique acquisition planes instead of presenting them as orthogonal re
     s = Math.sin(angle);
   const planes = describePlanes(volume([1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0]));
   expect(planes.map((p) => [p.title, p.note])).toEqual([
-    ["轴位", "斜切"],
+    ["轴位", "Oblique"],
     ["矢状位", ""],
-    ["冠状位", "斜切"],
+    ["冠状位", "Oblique"],
   ]);
 });
 
@@ -63,7 +63,7 @@ it("uses plane normals for shear, and declines a misleading forced anatomical na
   // The first voxel direction is mostly anterior, but its constant-index
   // plane is spanned by anterior/superior vectors: an exact sagittal plane.
   expect(planes[1]).toMatchObject({ axis: 0, title: "矢状位", note: "" });
-  expect(planes[2]).toMatchObject({ title: "斜切面 3", note: "斜切" });
+  expect(planes[2]).toMatchObject({ title: "斜切面 3", note: "Oblique" });
 });
 
 it("does not invent anatomical names or side labels when orientation is missing", () => {
@@ -73,7 +73,9 @@ it("does not invent anatomical names or side labels when orientation is missing"
     "切面 2",
     "切面 3",
   ]);
-  expect(describePlanes(image).every((p) => p.note === "方向未知")).toBe(true);
+  expect(
+    describePlanes(image).every((p) => p.note === "Unknown orientation"),
+  ).toBe(true);
   expect(directionLabel(image, 0, 1)).toBe("");
 });
 

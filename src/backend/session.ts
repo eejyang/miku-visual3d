@@ -115,7 +115,7 @@ export class ViewerSession {
     reference?: VolumeInfo,
   ): Promise<RemoteVolume> {
     if (!/\.nii(\.gz)?$/i.test(source.path))
-      throw new Error("请选择 .nii 或 .nii.gz 文件。");
+      throw new Error("Please select a .nii or .nii.gz file.");
     this.host.log(`Opening ${source.name}`);
     const task = RemoteVolume.open(
       source.path,
@@ -161,17 +161,22 @@ export class ViewerSession {
           if (this.opening) {
             this.post({
               type: "status",
-              message: "正在读取影像，压缩文件首次打开需先在工作区主机解压…",
+              message:
+                "Loading image; compressed files must first be decompressed on the workspace host…",
             });
             return;
           }
           this.opening = true;
-          this.post({ type: "status", message: "正在工作区主机读取影像…" });
+          this.post({
+            type: "status",
+            message: "Loading image on the workspace host…",
+          });
           try {
             this.base = await this.load(this.source);
             this.post({
               type: "status",
-              message: "正在统计灰度种类，自动识别影像或分割 mask…",
+              message:
+                "Counting unique values to identify image or segmentation mask…",
             });
             this.classifying = this.base.classifySource(this.abort.signal);
             this.sourceKind = await this.classifying;
@@ -212,7 +217,8 @@ export class ViewerSession {
             !Number.isInteger(r.frame)
           )
             return;
-          if (!this.base) throw new Error("影像尚未读入，请稍候。");
+          if (!this.base)
+            throw new Error("Image is not loaded yet. Please wait.");
           this.diagnostics.requests++;
           this.pending.set(r.axis, { ...r });
           this.revisions[r.axis]++;
@@ -313,7 +319,7 @@ export class ViewerSession {
           }
           break;
         case "clientError":
-          this.fail(`界面错误：${String(message.message).slice(0, 2000)}`);
+          this.fail(`Viewer error: ${String(message.message).slice(0, 2000)}`);
           break;
       }
     } catch (error) {
@@ -413,7 +419,7 @@ export class ViewerSession {
             continue;
           }
           if (!layer) {
-            this.post({ type: "status", message: `正在读取 ${item.name}…` });
+            this.post({ type: "status", message: `Loading ${item.name}…` });
             const candidate = await this.load(item, this.base.info);
             if (this.closed || epoch !== this.overlayEpoch) break;
             const classifying = candidate.classifySource(this.abort.signal);
@@ -493,7 +499,10 @@ export class ViewerSession {
       type: "surface",
       layerId: layer.id,
       revision: layer.revision,
-      surface: { state: "loading", message: "等待工作区主机提取表面…" },
+      surface: {
+        state: "loading",
+        message: "Waiting for surface extraction on the workspace host…",
+      },
     });
   }
 
@@ -549,7 +558,7 @@ export class ViewerSession {
         if (current() && (!received || code !== 0))
           post({
             state: "error",
-            message: `三维表面计算退出（${code}），可点击重新生成。`,
+            message: `Surface extraction exited (code ${code}). Regenerate to try again.`,
           });
         if (this.surfaceWorker === worker) this.surfaceWorker = undefined;
         this.surfaceJobs.delete(worker);

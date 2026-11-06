@@ -433,9 +433,6 @@ footer {
     padding-left: 8px;
     padding-right: 8px;
   }
-  footer > span:last-child {
-    display: none;
-  }
   .brand {
     font-size: 14px;
   }
@@ -487,14 +484,6 @@ footer {
 }
 .render-message.error {
   color: #f48771;
-}
-.render-hint {
-  position: absolute;
-  bottom: 6px;
-  left: 8px;
-  color: #83909f;
-  font-size: 10px;
-  pointer-events: none;
 }
 #surfaceLayers {
   flex-shrink: 0;

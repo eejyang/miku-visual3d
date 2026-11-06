@@ -52,7 +52,7 @@ function report(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
   status.textContent = text;
   status.classList.add("error");
-  $("startup").textContent = `无法显示影像：${text}`;
+  $("startup").textContent = `Unable to display image: ${text}`;
   api.postMessage({ type: "clientError", message: text });
 }
 window.addEventListener("error", (e) => report(e.error || e.message));
@@ -88,6 +88,10 @@ const frame = $<HTMLInputElement>("frame");
 const colormap = $<HTMLSelectElement>("colormap");
 const mainImage = $<HTMLSelectElement>("mainImage");
 
+function formatWindowValue(value: number): string {
+  return String(Number(value.toPrecision(6)));
+}
+
 function updateHeader() {
   if (!volume) return;
   const images = [
@@ -95,8 +99,8 @@ function updateHeader() {
     ...layers.filter((layer) => layer.kind === "image" && !layer.isReference),
   ];
   const current = images.find((image) => image.id === backgroundId)?.volume;
-  $("title").textContent = current?.name ?? "未加载主影像";
-  $("title").title = current?.name ?? "未加载主影像";
+  $("title").textContent = current?.name ?? "No image loaded";
+  $("title").title = current?.name ?? "No image loaded";
   $("title").hidden = images.length > 1;
   mainImage.hidden = images.length < 2;
   mainImage.replaceChildren(
@@ -117,11 +121,11 @@ function updateHeader() {
     const unit = ({ 1: "m", 2: "mm", 3: "µm" } as Record<number, string>)[
       current.spatialUnits & 7
     ];
-    if (unit && current.spacing.every((n) => Number.isFinite(n) && n > 0))
+    if (current.spacing.every((n) => Number.isFinite(n) && n > 0))
       fields.push(
-        `${current.spacing.map((n) => Number(n.toPrecision(6))).join(" × ")} ${unit}`,
+        `${current.spacing.map((n) => Number(n.toPrecision(6))).join(" × ")} ${unit ?? "mm"}`,
       );
-    if (current.frames > 1) fields.push(`${current.frames} 帧`);
+    if (current.frames > 1) fields.push(`${current.frames} frames`);
   }
   $("details").textContent = fields.join(" · ");
   $("details").title = fields.join(" · ");
@@ -130,7 +134,7 @@ function updateHeader() {
 function decode(plane: SlicePixels): Float32Array {
   const bytes = Uint8Array.from(atob(plane.pixels), (c) => c.charCodeAt(0));
   if (bytes.length !== plane.width * plane.height * 4)
-    throw new Error("切片数据长度错误。");
+    throw new Error("Invalid slice data length.");
   const view = new DataView(bytes.buffer);
   return Float32Array.from({ length: plane.width * plane.height }, (_, i) =>
     view.getFloat32(i * 4, true),
@@ -245,7 +249,8 @@ function draw(plane: Plane) {
     let nonblack = 0;
     for (let p = 0; p < readback.length; p += 4)
       if (readback[p] || readback[p + 1] || readback[p + 2]) nonblack++;
-    if (visiblePixels !== nonblack) throw new Error("Canvas 写入校验失败。");
+    if (visiblePixels !== nonblack)
+      throw new Error("Canvas pixel verification failed.");
     api.postMessage({
       type: "painted",
       id: plane.current.request.id,
@@ -260,6 +265,10 @@ function draw(plane: Plane) {
 }
 function drawAll() {
   planes.forEach(draw);
+  syncSurfaceCrosshair();
+}
+function syncSurfaceCrosshair() {
+  if (volume) surface.setCrosshair(volume, indices, showCrosshair);
 }
 function applyLayout() {
   const mode = viewLayout.value;
@@ -296,7 +305,7 @@ function request(plane: Plane) {
     index: indices[plane.axis],
     frame: Number(frame.value),
   };
-  status.textContent = "正在读取切片…";
+  status.textContent = "Loading slices…";
   status.classList.remove("error");
   send(plane);
 }
@@ -312,8 +321,8 @@ function autoWindow() {
   if (!slices.length) return;
   const min = Math.min(...slices.map((p) => p.min)),
     max = Math.max(...slices.map((p) => p.max));
-  level.value = String((min + max) / 2);
-  windowWidth.value = String(Math.max(max - min, 1e-5));
+  level.value = formatWindowValue((min + max) / 2);
+  windowWidth.value = formatWindowValue(Math.max(max - min, 1e-5));
   windowInitialized = max > min;
   drawAll();
 }
@@ -331,7 +340,7 @@ function createPlane(description: PlaneDescription): Plane {
   $("panels").append(section);
   const canvas = section.querySelector("canvas")!;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) throw new Error("无法创建 Canvas2D 显示上下文。");
+  if (!context) throw new Error("Unable to create a Canvas2D context.");
   const plane: Plane = {
     axis,
     display,
@@ -398,8 +407,8 @@ function createPlane(description: PlaneDescription): Plane {
   canvas.onpointermove = (e) => {
     if (!drag) return;
     const scale = Math.max(1, drag.width) / 200;
-    level.value = String(drag.level + (e.clientY - drag.y) * scale);
-    windowWidth.value = String(
+    level.value = formatWindowValue(drag.level + (e.clientY - drag.y) * scale);
+    windowWidth.value = formatWindowValue(
       Math.max(1e-5, drag.width + (e.clientX - drag.x) * scale),
     );
     windowInitialized = true;
@@ -423,6 +432,7 @@ try {
     showCrosshair = !showCrosshair;
     $("toggleCrosshair").setAttribute("aria-pressed", String(showCrosshair));
     planes.forEach(fit);
+    syncSurfaceCrosshair();
   };
   $("resetDisplay").onclick = () => {
     autoWindow();
@@ -440,14 +450,20 @@ try {
     }
     const preset = CT_WINDOW_PRESETS.find((p) => p.id === windowPreset.value);
     if (!preset) return;
-    level.value = String(preset.level);
-    windowWidth.value = String(preset.width);
+    level.value = formatWindowValue(preset.level);
+    windowWidth.value = formatWindowValue(preset.width);
     windowInitialized = true;
     drawAll();
   };
   level.oninput = windowWidth.oninput = () => {
     windowInitialized = true;
     windowPreset.value = "custom";
+    drawAll();
+  };
+  level.onchange = windowWidth.onchange = (event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    if (!Number.isFinite(input.valueAsNumber)) return;
+    input.value = formatWindowValue(input.valueAsNumber);
     drawAll();
   };
   frame.oninput = () => {
@@ -489,6 +505,7 @@ try {
             planes.push(createPlane(description));
           applyLayout();
           requestAll();
+          syncSurfaceCrosshair();
           break;
         case "slice": {
           const plane = planes.find((p) => p.axis === message.request.axis);
@@ -508,7 +525,7 @@ try {
           }
           send(plane);
           if (planes.every((p) => !p.wanted && p.current))
-            status.textContent = "就绪";
+            status.textContent = "Ready";
           break;
         }
         case "overlay":

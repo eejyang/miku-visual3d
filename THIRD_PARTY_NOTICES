@@ -23,7 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-Matplotlib 3.11.2 colormap lookup tables (Viridis, Magma, Hot)
+Matplotlib 3.11.2 colormap lookup tables
+(Viridis, Magma, Hot, Gray Inverted, Bone, Copper, Cool, Plasma, Inferno,
+Cividis, Turbo, Jet, Coolwarm)
 https://matplotlib.org/
 Copyright (c) 2012- Matplotlib Development Team; All Rights Reserved
 Changes: sampled display colormaps as 256 RGB entries; no Matplotlib runtime code.

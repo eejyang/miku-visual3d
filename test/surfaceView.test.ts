@@ -138,7 +138,7 @@ it("retains both same-label sources and applies visibility, color, opacity and w
     "GT.nii.gz",
   );
   expect(row(1).querySelector(".surface-label-count")!.textContent).toBe(
-    "· 2 标签",
+    "· 2 labels",
   );
   expect(row(1).querySelector(".surface-name")).toBeNull();
   change(1, "color", "#ff0000");
@@ -229,11 +229,20 @@ it("restores automatic label colors after a manual file-color override", () => {
   ready("mask-1");
   ready("mask-2");
   expect(control(1, "color").disabled).toBe(true);
-  change(1, "color", "#ff0000");
   const [gt, pred] = objects();
+  const mode = row(1).querySelector<HTMLSelectElement>(".surface-color-mode")!;
+  mode.value = "#ef4444";
+  mode.dispatchEvent(new Event("change"));
+  expect(control(1, "color").value).toBe("#ef4444");
+  expect((gt.children[0] as Mesh).material.color.getHexString()).toBe("ef4444");
+  expect((gt.children[1] as Mesh).material.color.getHexString()).toBe("ef4444");
+  expect((pred.children[0] as Mesh).material.color.getHexString()).not.toBe(
+    "ef4444",
+  );
+  change(1, "color", "#ff0000");
+  expect(mode.value).toBe("custom");
   expect((gt.children[0] as Mesh).material.color.getHexString()).toBe("ff0000");
   expect((gt.children[1] as Mesh).material.color.getHexString()).toBe("ff0000");
-  const mode = row(1).querySelector<HTMLSelectElement>(".surface-color-mode")!;
   mode.value = "auto";
   mode.dispatchEvent(new Event("change"));
   expect(control(1, "color").disabled).toBe(true);
@@ -261,20 +270,17 @@ it("selects labels independently of visibility and locates world-space bounds th
   data.vertices = vertices.toString("base64");
   view.update("mask-1", 1, { state: "ready", frame: 0, meshes: [data] });
   view.setActiveLayer("mask-1");
-  const locateButton =
-    row(1).querySelector<HTMLButtonElement>(".surface-locate")!;
-  expect(locateButton.disabled).toBe(true);
+  expect(row(1).querySelector(".surface-locate")).toBeNull();
   const select = row(1).querySelector<HTMLButtonElement>(
     ".surface-label-select",
   )!;
   select.click();
   expect(select.getAttribute("aria-pressed")).toBe("true");
-  expect(locateButton.disabled).toBe(false);
   const object = objects()[0].children[0] as Mesh;
   expect(object.visible).toBe(true);
   change(1, "visible", false);
   row(1).querySelector<HTMLButtonElement>(".surface-label-toggle")!.click();
-  locateButton.click();
+  select.dispatchEvent(new MouseEvent("dblclick"));
   expect(locate).toHaveBeenCalledOnce();
   expect(locate.mock.calls[0][0]).toBe("mask-1");
   locate.mock.calls[0][1].forEach((n: number, i: number) =>
@@ -289,9 +295,11 @@ it("selects labels independently of visibility and locates world-space bounds th
   select.dispatchEvent(new MouseEvent("dblclick"));
   expect(locate).toHaveBeenCalledTimes(2);
   view.update("mask-1", 2, { state: "loading", message: "loading" });
-  expect(locateButton.disabled).toBe(true);
+  select.dispatchEvent(new MouseEvent("dblclick"));
+  expect(locate).toHaveBeenCalledTimes(2);
   ready("mask-1", 2);
-  expect(locateButton.disabled).toBe(true); // label 7 is absent in this frame.
+  select.dispatchEvent(new MouseEvent("dblclick"));
+  expect(locate).toHaveBeenCalledTimes(2); // label 7 is absent in this frame.
 });
 
 it("keeps first-line controls on collapse, preserves display settings and rejects singular localization", () => {
@@ -301,12 +309,15 @@ it("keeps first-line controls on collapse, preserves display settings and reject
   };
   view.setLayers([original]);
   ready("mask-1");
-  row(1).querySelector<HTMLButtonElement>(".surface-label-select")!.click();
-  expect(control(1, "locate").disabled).toBe(true);
+  const select = row(1).querySelector<HTMLButtonElement>(
+    ".surface-label-select",
+  )!;
+  select.click();
+  select.dispatchEvent(new MouseEvent("dblclick"));
+  expect(locate).not.toHaveBeenCalled();
   const summary = row(1).querySelector("summary")!;
   for (const selector of [
     ".surface-visible",
-    ".surface-locate",
     ".surface-opacity",
     ".surface-solid",
     ".surface-wireframe",
@@ -335,4 +346,59 @@ it("keeps first-line controls on collapse, preserves display settings and reject
   expect(object.material.wireframe).toBe(false);
   expect(control(1, "wireframe").getAttribute("aria-pressed")).toBe("false");
   expect((row(1) as HTMLDetailsElement).open).toBe(false);
+});
+
+it("projects the linked voxel through its reference affine and follows camera zoom without changing surfaces", () => {
+  const viewport = document.getElementById("renderViewport")!;
+  Object.defineProperties(viewport, {
+    clientWidth: { value: 400 },
+    clientHeight: { value: 300 },
+  });
+  const volume = {
+    ...infos[0].volume,
+    affine: [0, -2, 0.5, 100, 3, 0, 0, -50, 0, 0, 4, 20],
+  };
+  view.setCrosshair(volume, [3, 4, 5], true);
+  const guides = viewport.querySelector<HTMLElement>(".crosshair")!;
+  expect(guides.hidden).toBe(true); // No surface camera exists yet.
+  const data = mesh(7),
+    vertices = Buffer.alloc(36);
+  [97.5, -47, 32, 97.5, -35, 32, 91.5, -47, 48].forEach((n, i) =>
+    vertices.writeFloatLE(n, i * 4),
+  );
+  data.vertices = vertices.toString("base64");
+  view.update("mask-1", 1, { state: "ready", frame: 0, meshes: [data] });
+  expect(guides.hidden).toBe(false);
+  expect(guides.style.getPropertyValue("--crosshair-x")).toBe("200px");
+  expect(guides.style.getPropertyValue("--crosshair-y")).toBe("150px");
+  const object = objects()[0].children[0] as Mesh;
+  const geometry = object.geometry,
+    camera = state.camera!;
+  view.setCrosshair(volume, [2, 4, 5], true);
+  const verifyPosition = () => {
+    // World coordinate computed independently from the fixture affine.
+    const point = new Vector3(94.5, -44, 40).project(camera);
+    expect(guides.hidden).toBe(false);
+    expect(guides.style.getPropertyValue("--crosshair-x")).toBe(
+      `${Math.round((point.x + 1) * 200)}px`,
+    );
+    expect(guides.style.getPropertyValue("--crosshair-y")).toBe(
+      `${Math.round((1 - point.y) * 150)}px`,
+    );
+  };
+  verifyPosition();
+  const before = camera.position.clone();
+  viewport
+    .querySelector("canvas")!
+    .dispatchEvent(new WheelEvent("wheel", { deltaY: -100, cancelable: true }));
+  expect(camera.position.equals(before)).toBe(false);
+  verifyPosition();
+  view.setCrosshair(volume, [2, 4, 5], false);
+  expect(guides.hidden).toBe(true);
+  view.setCrosshair(volume, [2, 4, 5], true);
+  expect(guides.hidden).toBe(false);
+  expect(object.geometry).toBe(geometry);
+  expect(object.visible).toBe(true);
+  view.setCrosshair(volume, [100000, 4, 5], true);
+  expect(guides.hidden).toBe(true);
 });

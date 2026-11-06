@@ -44,7 +44,7 @@ export function flyingEdges(
         let b = bounds.get(label);
         if (!b) {
           if (bounds.size >= 128)
-            throw new Error("三维 mask 最多支持 128 个标签。");
+            throw new Error("3D masks support at most 128 labels.");
           bounds.set(label, (b = { min: [x, y, z], max: [x, y, z] }));
         }
         for (const [axis, value] of [x, y, z].entries()) {
@@ -74,7 +74,9 @@ export function flyingEdges(
     const [nx, ny, nz] = boundsForLabel.max.map((n, a) => n - origin[a] + 2);
     const ex = nx - 1;
     if (ex * ny * nz > 80 * 1024 * 1024)
-      throw new Error("三维 mask 包围盒过大；二维叠加仍可使用。");
+      throw new Error(
+        "3D mask bounding box is too large; 2D overlays remain available.",
+      );
     const cases = new Uint8Array(ex * ny * nz);
     const rows: Row[] = Array.from({ length: ny * nz }, () => ({
       edges: [[], [], []],
@@ -167,7 +169,7 @@ export function flyingEdges(
         }
         if (triangles > budget || vertices > 2_000_000)
           throw new Error(
-            "三维表面超过 100 万三角形或 200 万顶点上限；二维叠加仍可使用。",
+            "3D surface exceeds the triangle or vertex limit; 2D overlays remain available.",
           );
       }
     // Pass 3: prefix sums and exact output allocations.

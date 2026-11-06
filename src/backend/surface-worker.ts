@@ -29,7 +29,10 @@ async function run() {
       reference.dimensions,
       reference.affine,
       (label) =>
-        post({ state: "loading", message: `正在提取标签 ${label} 的表面…` }),
+        post({
+          state: "loading",
+          message: `Extracting surface for label ${label}…`,
+        }),
     );
     post({
       state: "ready",

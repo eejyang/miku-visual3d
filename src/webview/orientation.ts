@@ -112,7 +112,7 @@ export function describePlanes(volume: VolumeInfo): PlaneDescription[] {
       axis: ([2, 0, 1] as Axis[])[i],
       title: `切面 ${i + 1}`,
       english: "",
-      note: "方向未知",
+      note: "Unknown orientation",
       display: displayOrientation(volume, ([2, 0, 1] as Axis[])[i], view.view),
     }));
   }
@@ -144,7 +144,7 @@ export function describePlanes(volume: VolumeInfo): PlaneDescription[] {
       view: view.view,
       title: ambiguous ? `斜切面 ${i + 1}` : view.title,
       english: ambiguous ? "Oblique" : view.english,
-      note: alignment < Math.cos(Math.PI / 360) ? "斜切" : "",
+      note: alignment < Math.cos(Math.PI / 360) ? "Oblique" : "",
       display: displayOrientation(volume, axis, view.view),
     };
   });
